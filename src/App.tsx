@@ -14,10 +14,12 @@ export default function App() {
   const [meters, setMeters] = useState("3");
   const [supply, setSupply] = useState("airsul");
   const [notes, setNotes] = useState("");
-  const valid = Number(meters) >= 0.5 && Number(meters) <= 100;
+  const valid = Number.isFinite(Number(meters)) && meters.trim() !== "" && Number(meters) >= 0.5 && Number(meters) <= 100;
+  const nameValid = name.trim().length >= 2;
+  const canSend = valid && nameValid;
 
   function requestQuote() {
-    if (!valid) return;
+    if (!canSend) return;
     const message = [
       "Olá! Gostaria de solicitar uma avaliação de instalação com a AirSul.",
       "Nome: " + (name.trim() || "Não informado"),
@@ -63,8 +65,9 @@ export default function App() {
       <label>Observações
         <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} maxLength={1000} placeholder="Ex.: parede-parede, altura, ponto elétrico..."/>
       </label>
+      {!nameValid && <p className="error" role="alert">Informe seu nome (mínimo de 2 caracteres).</p>}
       {!valid && <p className="error" role="alert">Informe uma metragem entre 0,5 e 100 metros.</p>}
-      <button disabled={!valid} onClick={requestQuote}>Solicitar pelo WhatsApp</button>
+      <button disabled={!canSend} onClick={requestQuote}>Solicitar pelo WhatsApp</button>
       <p className="footnote">Solicitação não é orçamento definitivo. A equipe confirmará medidas, materiais e requisitos conforme o manual do equipamento.</p>
     </section>
     <footer>AirSul Climatização • Capão da Canoa e Litoral Norte/RS</footer>
