@@ -1,6 +1,6 @@
 import { Router } from "express";
 import type pg from "pg";
-import { requireAdmin } from "./auth.js";
+import { requireSession } from "./session.js";
 
 type QuoteLine = { materialId: string; quantity: number; suppliedBy: "airsul" | "client" };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -15,7 +15,7 @@ const validLine = (v: unknown): v is QuoteLine => {
 };
 export function quoteRoutes(pool: pg.Pool) {
   const router = Router();
-  router.use(requireAdmin);
+  router.use(requireSession(pool));
   router.post("/preview", async (req, res) => {
     const { lines, laborCents, travelCents, overheadCents, marginPercent, supplyMode } = req.body || {};
     if (!Array.isArray(lines) || lines.length > 100 || !lines.every(validLine) ||
