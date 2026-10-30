@@ -5,6 +5,7 @@ import cors from "cors";
 import pg from "pg";
 import { materialRoutes } from "./materials.js";
 import { quoteRoutes } from "./quotes.js";
+import { sessionRoutes } from "./session.js";
 
 const app = express();
 app.disable("x-powered-by");
@@ -22,6 +23,7 @@ app.get("/api/health", async (_req, res) => {
   catch { res.status(503).json({ status: "unavailable" }); }
 });
 if (pool) {
+  app.use("/api/admin", sessionRoutes(pool));
   app.use("/api/admin/materials", materialRoutes(pool));
   app.use("/api/admin/quotes", quoteRoutes(pool));
 }
