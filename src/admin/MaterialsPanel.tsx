@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { FormEvent } from "react";
 
 export type Material = { id: string; name: string; unit: string; unit_cost: string; active: boolean };
 export type NewMaterial = { name: string; unit: string; unitCost: number };
@@ -24,7 +25,7 @@ export default function MaterialsPanel({ materials, loading = false, onCreate }:
   const value = Number(cost.replace(",", "."));
   const valid = name.trim().length >= 2 && Number.isFinite(value) && value >= 0 && value <= 1000000;
 
-  async function submit(e: React.FormEvent<HTMLFormElement>) {
+  async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!valid || busy) return;
     setBusy(true); setError("");
