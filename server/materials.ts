@@ -1,9 +1,9 @@
 import { Router } from "express";
 import type pg from "pg";
-import { requireAdmin } from "./auth.js";
+import { requireSession } from "./session.js";
 export function materialRoutes(pool: pg.Pool) {
   const router = Router();
-  router.use(requireAdmin);
+  router.use(requireSession(pool));
   router.get("/", async (_req, res) => {
     try {
       const result = await pool.query("SELECT id, name, unit, unit_cost, active, created_at FROM materials ORDER BY name ASC LIMIT 500");
