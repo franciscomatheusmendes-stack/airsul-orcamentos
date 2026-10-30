@@ -4,6 +4,7 @@ import helmet from "helmet";
 import cors from "cors";
 import pg from "pg";
 import { materialRoutes } from "./materials.js";
+import { quoteRoutes } from "./quotes.js";
 
 const app = express();
 app.disable("x-powered-by");
@@ -20,7 +21,10 @@ app.get("/api/health", async (_req, res) => {
   try { await pool.query("SELECT 1"); res.json({ status: "ok" }); }
   catch { res.status(503).json({ status: "unavailable" }); }
 });
-if (pool) app.use("/api/admin/materials", materialRoutes(pool));
+if (pool) {
+  app.use("/api/admin/materials", materialRoutes(pool));
+  app.use("/api/admin/quotes", quoteRoutes(pool));
+}
 app.use("/api", (_req, res) => res.status(404).json({ error: "Rota indisponível" }));
 const port = Number(process.env.PORT || 3001);
 app.listen(port, () => console.log("AirSul API listening on port", port));
