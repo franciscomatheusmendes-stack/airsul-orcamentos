@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type {FormEvent} from "react";
 
 const phone = "5551998193796";
 const services: Record<string, string> = { installation: "Instalação", cleaning: "Higienização", maintenance: "Manutenção / diagnóstico", removal: "Desinstalação" };
@@ -18,11 +19,15 @@ export default function App() {
   const [meters, setMeters] = useState("3");
   const [supply, setSupply] = useState("airsul");
   const [notes, setNotes] = useState("");
-  const valid = Number.isFinite(Number(meters)) && meters.trim() !== "" && Number(meters) >= 0.5 && Number(meters) <= 100;
+  const [submitted,setSubmitted]=useState(false);
+  const meterValue=Number(meters.replace(",","."));
+  const valid = /^\d+(?:[.,]\d{1,2})?$/.test(meters.trim()) && Number.isFinite(meterValue) && meterValue >= 0.5 && meterValue <= 100;
   const nameValid = name.trim().length >= 2;
-  const canSend = (service !== "installation" || valid) && nameValid && city.trim().length >= 2;
+  const contactValid=!contact.trim() || /^[+()\d\s-]{8,30}$/.test(contact.trim());
+  const canSend = (service !== "installation" || valid) && nameValid && city.trim().length >= 2 && contactValid;
 
-  function requestQuote() {
+  function requestQuote(event:FormEvent<HTMLFormElement>) {
+    event.preventDefault();setSubmitted(true);
     if (!canSend) return;
     const message = [
       "Olá! Gostaria de solicitar um orçamento com a AirSul.",
@@ -31,11 +36,11 @@ export default function App() {
       "Cidade / bairro: " + city.trim(),
       "Contato: " + (contact.trim() || "Pelo WhatsApp"),
       "Capacidade: " + btu + " BTU/h",
-      ...(service === "installation" ? ["Tubulação estimada: " + meters + " m", "Materiais: " + supplyLabels[supply]] : []),
+      ...(service === "installation" ? ["Tubulação estimada: " + meterValue.toLocaleString("pt-BR") + " m", "Materiais: " + supplyLabels[supply]] : []),
       "Observações: " + (notes.trim() || "Nenhuma"),
       "Estou ciente de que o orçamento depende de avaliação técnica."
     ].join("\n");
-    window.open("https://wa.me/" + phone + "?text=" + encodeURIComponent(message), "_blank", "noopener,noreferrer");
+    window.location.assign("https://wa.me/" + phone + "?text=" + encodeURIComponent(message));
   }
 
   return <main>
@@ -51,8 +56,9 @@ export default function App() {
     <section className="panel">
       <h2>Solicitar orçamento</h2>
       <p className="muted">Os valores serão confirmados pela equipe após avaliação técnica.</p>
+      <form onSubmit={requestQuote} noValidate>
       <label>Seu nome
-        <input value={name} onChange={e => setName(e.target.value)} placeholder="Nome" maxLength={120}/>
+        <input value={name} onChange={e => setName(e.target.value)} placeholder="Nome" autoComplete="name" required minLength={2} maxLength={120} aria-invalid={submitted&&!nameValid}/>
       </label>
       <label>Serviço desejado
         <select value={service} onChange={e => setService(e.target.value)}>
@@ -60,7 +66,7 @@ export default function App() {
         </select>
       </label>
       <label>Cidade e bairro
-        <input value={city} onChange={e => setCity(e.target.value)} placeholder="Ex.: Capão da Canoa, Centro" maxLength={120}/>
+        <input value={city} onChange={e => setCity(e.target.value)} placeholder="Ex.: Capão da Canoa, Centro" required minLength={2} maxLength={120} aria-invalid={submitted&&city.trim().length<2}/>
       </label>
       <label>Telefone para contato (opcional)
         <input type="tel" inputMode="tel" autoComplete="tel" value={contact} onChange={e => setContact(e.target.value)} placeholder="(51) 99999-9999" maxLength={30}/>
@@ -71,7 +77,7 @@ export default function App() {
         </select>
       </label>
       {service === "installation" && <><label>Comprimento estimado da tubulação (metros)
-        <input type="number" min="0.5" max="100" step="0.5" value={meters} onChange={e => setMeters(e.target.value)}/>
+        <input inputMode="decimal" value={meters} onChange={e => setMeters(e.target.value)} required aria-invalid={submitted&&!valid}/>
       </label>
       <fieldset>
         <legend>Quem fornece os materiais?</legend>
@@ -82,12 +88,15 @@ export default function App() {
       <label>Observações
         <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} maxLength={1000} placeholder="Ex.: parede-parede, altura, ponto elétrico..."/>
       </label>
-      {!nameValid && <p className="error" role="alert">Informe seu nome (mínimo de 2 caracteres).</p>}
-      {city.trim().length < 2 && <p className="error" role="alert">Informe sua cidade ou bairro.</p>}
-      {service === "installation" && !valid && <p className="error" role="alert">Informe uma metragem entre 0,5 e 100 metros.</p>}
-      <button disabled={!canSend} onClick={requestQuote}>Solicitar pelo WhatsApp</button>
+      {submitted&&!nameValid && <p className="error" role="alert">Informe seu nome (mínimo de 2 caracteres).</p>}
+      {submitted&&city.trim().length < 2 && <p className="error" role="alert">Informe sua cidade ou bairro.</p>}
+      {submitted&&!contactValid&&<p className="error" role="alert">Confira o telefone informado ou deixe o campo vazio.</p>}
+      {submitted&&service === "installation" && !valid && <p className="error" role="alert">Informe uma metragem entre 0,5 e 100 metros, com até duas casas decimais.</p>}
+      <button type="submit">Continuar no WhatsApp</button>
+      </form>
+      <p className="muted">O WhatsApp será aberto com seu pedido preenchido. Confira a mensagem e toque em enviar para concluir a solicitação.</p>
       <p className="footnote">Solicitação não é orçamento definitivo. A equipe confirmará medidas, materiais e requisitos conforme o manual do equipamento.</p>
     </section>
-    <footer>AirSul Climatização • Capão da Canoa e Litoral Norte/RS</footer>
+    <footer>AirSul Climatização • Capão da Canoa e Litoral Norte/RS <a className="admin-link" href="https://airsul-orcamentos-api.onrender.com/admin">Área administrativa</a></footer>
   </main>;
 }

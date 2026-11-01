@@ -1,59 +1,18 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { FormEvent } from "react";
-
-export type Material = { id: string; name: string; unit: string; unit_cost: string; active: boolean };
-export type NewMaterial = { name: string; unit: string; unitCost: number };
-type Props = {
-  materials: Material[];
-  loading?: boolean;
-  onCreate: (material: NewMaterial) => Promise<void>;
-};
-
-const currency = (value: number) => new Intl.NumberFormat("pt-BR", {style:"currency",currency:"BRL"}).format(value);
-
-/**
- * Componente visual reutilizável.
- * NÃO montar em rota pública até haver sessão de usuário e autorização no backend.
- * Nunca inserir token administrativo neste componente.
- */
-export default function MaterialsPanel({ materials, loading = false, onCreate }: Props) {
-  const [name, setName] = useState("");
-  const [unit, setUnit] = useState("m");
-  const [cost, setCost] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const value = Number(cost.replace(",", "."));
-  const valid = name.trim().length >= 2 && cost.trim() !== "" && Number.isFinite(value) && value >= 0 && value <= 1000000;
-
-  async function submit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (!valid || busy) return;
-    setBusy(true); setError("");
-    try {
-      await onCreate({name:name.trim(),unit,unitCost:Math.round(value*100)/100});
-      setName("");setCost("");
-    } catch { setError("Não foi possível salvar. Tente novamente."); }
-    finally { setBusy(false); }
-  }
-
-  return <section className="panel" aria-label="Catálogo de materiais">
-    <h2>Materiais e custos</h2>
-    <p className="muted">Área interna da AirSul. Custos não devem ser mostrados aos clientes.</p>
-    <form onSubmit={submit}>
-      <label>Material<input value={name} onChange={e=>setName(e.target.value)} maxLength={150} placeholder="Ex.: tubo de cobre 1/4 pol."/></label>
-      <label>Unidade<select value={unit} onChange={e=>setUnit(e.target.value)}>
-        <option value="m">Metro</option><option value="un">Unidade</option><option value="kg">Quilo</option>
-        <option value="l">Litro</option><option value="kit">Kit</option><option value="par">Par</option>
-      </select></label>
-      <label>Custo unitário (R$)<input inputMode="decimal" value={cost} onChange={e=>setCost(e.target.value)} placeholder="0,00"/></label>
-      {error && <p role="alert" className="error">{error}</p>}
-      <button type="submit" disabled={!valid || busy}>{busy?"Salvando...":"Cadastrar material"}</button>
-    </form>
-    <h3>Catálogo ({materials.length})</h3>
-    {loading ? <p>Carregando...</p> : materials.length === 0 ? <p className="muted">Nenhum material cadastrado.</p> :
-      <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}>
-        <thead><tr><th align="left">Material</th><th align="left">Unidade</th><th align="right">Custo</th></tr></thead>
-        <tbody>{materials.map(m=><tr key={m.id}><td>{m.name}</td><td>{m.unit}</td><td align="right">{currency(Number(m.unit_cost))}</td></tr>)}</tbody>
-      </table></div>}
-  </section>;
+export type Material = {id:string;name:string;unit:string;unit_cost:string;active:boolean};
+export type NewMaterial = {name:string;unit:string;unitCost:number};
+type Props={materials:Material[];onSave:(material:NewMaterial,id?:string)=>Promise<void>};
+const currency=(n:number)=>new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(n);
+export default function MaterialsPanel({materials,onSave}:Props){
+ const [name,setName]=useState("");const [unit,setUnit]=useState("m");const [cost,setCost]=useState("");
+ const [editing,setEditing]=useState<string>();const [busy,setBusy]=useState(false);const [message,setMessage]=useState("");const [error,setError]=useState("");const [search,setSearch]=useState("");
+ const formRef=useRef<HTMLFormElement>(null);const inFlight=useRef(false);
+ const value=Number(cost.replace(",","."));
+ const valid=name.trim().length>=2&&/^\d+(?:[.,]\d{1,2})?$/.test(cost.trim())&&Number.isFinite(value)&&value>=0&&value<=1000000;
+ function clear(){setName("");setUnit("m");setCost("");setEditing(undefined);setError("");}
+ function edit(m:Material){setEditing(m.id);setName(m.name);setUnit(m.unit);setCost(m.unit_cost.replace(".",","));setMessage("");setError("");formRef.current?.scrollIntoView({behavior:"smooth",block:"center"});formRef.current?.querySelector("input")?.focus({preventScroll:true});}
+ async function submit(e:FormEvent){e.preventDefault();if(!valid||inFlight.current)return;inFlight.current=true;setBusy(true);setMessage("");setError("");try{await onSave({name:name.trim(),unit,unitCost:Math.round(value*100)/100},editing);setMessage(editing?"Material atualizado. Orçamentos já salvos mantêm seus valores.":"Material cadastrado.");clear();}catch(e){setError((e as Error).message);}finally{inFlight.current=false;setBusy(false);}}
+ const visible=materials.filter(m=>m.name.toLocaleLowerCase("pt-BR").includes(search.toLocaleLowerCase("pt-BR")));
+ return <section className="panel" id="materiais" aria-label="Catálogo de materiais"><h2>Materiais e custos</h2><p className="muted">Custos internos da AirSul. Atualize o catálogo sem alterar os orçamentos já salvos.</p><form ref={formRef} onSubmit={submit}><fieldset className="form-fields" disabled={busy}><label>Material<input value={name} onChange={e=>setName(e.target.value)} required minLength={2} maxLength={150} placeholder="Ex.: tubo de cobre 1/4 pol."/></label><div className="form-grid"><label>Unidade<select value={unit} onChange={e=>setUnit(e.target.value)}>{[["m","Metro"],["un","Unidade"],["kg","Quilo"],["l","Litro"],["kit","Kit"],["par","Par"]].map(([v,n])=><option key={v} value={v}>{n}</option>)}</select></label><label>Custo unitário (R$)<input inputMode="decimal" value={cost} onChange={e=>setCost(e.target.value)} required placeholder="0,00"/></label></div><div className="actions"><button type="submit" disabled={!valid}>{busy?"Salvando...":editing?"Salvar material":"Cadastrar material"}</button>{editing&&<button className="secondary" type="button" onClick={()=>{clear();setMessage("");}}>Cancelar edição</button>}</div></fieldset></form>{error&&<p className="error" role="alert">{error}</p>}{message&&<p className="success" role="status">{message}</p>}<h3>Catálogo ({materials.length})</h3><label>Buscar material<input type="search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Nome do material"/></label>{visible.length===0?<p className="muted">{materials.length?"Nenhum material corresponde à busca.":"Nenhum material cadastrado."}</p>:<div className="table-scroll"><table><thead><tr><th>Material</th><th>Unidade</th><th>Custo</th><th>Ações</th></tr></thead><tbody>{visible.map(m=><tr key={m.id}><td>{m.name}</td><td>{m.unit}</td><td>{currency(Number(m.unit_cost))}</td><td><button type="button" className="secondary compact" onClick={()=>edit(m)} disabled={busy} aria-label={"Editar material "+m.name}>Editar</button></td></tr>)}</tbody></table></div>}</section>;
 }

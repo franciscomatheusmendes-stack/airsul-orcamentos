@@ -1,49 +1,45 @@
-import { useEffect, useState } from "react";
-import type { FormEvent } from "react";
-import type { Material } from "./MaterialsPanel";
-type Customer = {id:string;name:string;phone:string};
-type Quote = {id:string;customer_name:string;status:string;proposed_price:string};
-type Line = {materialId:string;quantity:number;suppliedBy:"airsul"|"client"};
+import {useEffect,useRef,useState} from "react";
+import type {FormEvent} from "react";
+import type {Material} from "./MaterialsPanel";
+import CustomersPanel from "./CustomersPanel";
+import type {Customer} from "./CustomersPanel";
+import {api,jsonBody} from "./api";
+type Quote={id:string;customer_name:string;status:string;proposed_price:string;created_at:string};
+type Line={key:number;materialId:string;quantity:string;suppliedBy:"airsul"|"client"};
+type Preview={totalCostCents:number;proposedPriceCents:number;grossProfitCents:number;quoteId?:string};
 const currency=(n:number)=>new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(n);
-export default function QuotesPanel({materials}:{materials:Material[]}) {
-  const [customers,setCustomers]=useState<Customer[]>([]);
-  const [quotes,setQuotes]=useState<Quote[]>([]);
-  const [customerId,setCustomerId]=useState("");
-  const [lines,setLines]=useState<Line[]>([]);
-  const [message,setMessage]=useState("");
-  const [busy,setBusy]=useState(false);
-  const [preview,setPreview]=useState<{totalCostCents:number;proposedPriceCents:number;grossProfitCents:number}|null>(null);
-  async function refresh() {
-    const responses=await Promise.all([fetch("/api/admin/customers"),fetch("/api/admin/quotes")]);
-    if(responses.some(r=>!r.ok)) throw new Error("Falha ao carregar clientes e orçamentos.");
-    setCustomers((await responses[0].json()).customers);setQuotes((await responses[1].json()).quotes);
-  }
-  useEffect(()=>{void refresh().catch(e=>setMessage(e.message));},[]);
-  async function customer(e:FormEvent<HTMLFormElement>) {
-    e.preventDefault();const form=e.currentTarget;const data=new FormData(form);setBusy(true);setMessage("");
-    try {
-      const r=await fetch("/api/admin/customers",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:data.get("name"),phone:data.get("phone"),email:data.get("email")})});
-      if(!r.ok) throw new Error("Verifique os dados do cliente.");
-      const result=await r.json();await refresh();setCustomerId(result.customer.id);form.reset();setMessage("Cliente cadastrado.");
-    } catch(e){setMessage((e as Error).message);}finally{setBusy(false);}
-  }
-  async function quote(e:FormEvent<HTMLFormElement>) {
-    e.preventDefault();setBusy(true);setMessage("");setPreview(null);
-    const data=new FormData(e.currentTarget);
-    const money=(name:string)=>Math.round(Number(String(data.get(name)).replace(",","."))*100);
-    const mode=String(data.get("supplyMode"));
-    const save=(e.nativeEvent as SubmitEvent).submitter?.getAttribute("value")==="save";
-    try {
-      const r=await fetch("/api/admin/quotes"+(save?"":"/preview"),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({customerId,capacityBtu:Number(data.get("capacity")),lineLengthM:Number(data.get("length")),notes:data.get("notes"),lines:lines.map(l=>({...l,suppliedBy:mode==="partial"?l.suppliedBy:mode})),laborCents:money("labor"),travelCents:money("travel"),overheadCents:money("overhead"),marginPercent:Number(data.get("margin")),supplyMode:mode})});
-      if(!r.ok) throw new Error("Não foi possível calcular ou salvar. Confira os campos e os materiais.");
-      setPreview(await r.json());if(save){await refresh();setMessage("Orçamento salvo como rascunho.");}
-    } catch(e){setMessage((e as Error).message);}finally{setBusy(false);}
-  }
-  return <><section className="panel"><h2>Clientes</h2><form onSubmit={customer}><label>Nome<input name="name" required minLength={2} maxLength={150}/></label><label>Telefone<input name="phone" required maxLength={25} type="tel"/></label><label>Email<input name="email" type="email" maxLength={254}/></label><button disabled={busy}>Cadastrar cliente</button></form><p>{customers.length} cliente(s) cadastrado(s)</p></section>
-  <section className="panel"><h2>Novo orçamento</h2><form onSubmit={quote} onChange={()=>setPreview(null)}><label>Cliente<select required value={customerId} onChange={e=>setCustomerId(e.target.value)}><option value="">Selecione</option>{customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label><label>Capacidade (BTU)<input name="capacity" type="number" min={1000} max={200000} defaultValue={12000} required/></label><label>Linha (m)<input name="length" type="number" min={0} max={1000} step="0.01" defaultValue={3} required/></label><label>Fornecimento<select name="supplyMode" defaultValue="airsul"><option value="airsul">AirSul</option><option value="client">Cliente</option><option value="partial">Parcial</option></select></label>
-  {lines.map((line,i)=><fieldset key={i}><legend>Material {i+1}</legend><select aria-label="Material" value={line.materialId} onChange={e=>setLines(v=>v.map((l,j)=>j===i?{...l,materialId:e.target.value}:l))} required><option value="">Selecione</option>{materials.filter(m=>m.active).map(m=><option key={m.id} value={m.id}>{m.name} ({m.unit})</option>)}</select><input aria-label="Quantidade" type="number" min="0.001" max="10000" step="0.001" value={line.quantity} onChange={e=>setLines(v=>v.map((l,j)=>j===i?{...l,quantity:Number(e.target.value)}:l))} required/><select aria-label="Fornecedor quando parcial" value={line.suppliedBy} onChange={e=>setLines(v=>v.map((l,j)=>j===i?{...l,suppliedBy:e.target.value as Line["suppliedBy"]}:l))}><option value="airsul">AirSul</option><option value="client">Cliente</option></select><button type="button" onClick={()=>{setLines(v=>v.filter((_,j)=>j!==i));setPreview(null);}}>Remover</button></fieldset>)}
-  <button type="button" disabled={lines.length>=100} onClick={()=>{setLines(v=>[...v,{materialId:"",quantity:1,suppliedBy:"airsul"}]);setPreview(null);}}>Adicionar material</button>
-  {[["labor","Mão de obra"],["travel","Deslocamento"],["overhead","Despesas"]].map(([name,label])=><label key={name}>{label} (R$)<input name={name} type="number" min={0} max={1000000} step="0.01" defaultValue={0} required/></label>)}<label>Margem sobre venda (%)<input name="margin" type="number" min={0} max={90} step="0.01" defaultValue={25} required/></label><label>Observações internas<input name="notes" maxLength={2000} defaultValue=""/></label><button value="preview" disabled={busy}>Calcular</button> <button value="save" disabled={busy}>Salvar rascunho</button></form>
-  {preview&&<p role="status">Custo interno: {currency(preview.totalCostCents/100)} · Preço proposto: {currency(preview.proposedPriceCents/100)} · Lucro bruto: {currency(preview.grossProfitCents/100)}</p>}
-  <p role="status">{message}</p><h3>Orçamentos salvos</h3>{quotes.map(q=><p key={q.id}>{q.customer_name} · {currency(Number(q.proposed_price))} · Rascunho <a href={"/api/admin/quotes/"+q.id+"/pdf"}>Baixar PDF</a></p>)}</section></>;
+const statuses:Record<string,string>={draft:"Rascunho",pending_review:"Em revisão",approved:"Aprovado",sent:"Enviado",accepted:"Aceito",rejected:"Recusado"};
+export default function QuotesPanel({materials}:{materials:Material[]}){
+ const [customers,setCustomers]=useState<Customer[]>([]);const [quotes,setQuotes]=useState<Quote[]>([]);const [customerId,setCustomerId]=useState("");const [lines,setLines]=useState<Line[]>([]);const [supplyMode,setSupplyMode]=useState("airsul");
+ const [message,setMessage]=useState("");const [error,setError]=useState("");const [loadError,setLoadError]=useState("");const [busy,setBusy]=useState(false);const [downloading,setDownloading]=useState<string>();const [pdfMessage,setPdfMessage]=useState("");const [pdfError,setPdfError]=useState("");const [preview,setPreview]=useState<Preview|null>(null);const [savedId,setSavedId]=useState<string>();
+ const formRef=useRef<HTMLFormElement>(null);const inFlight=useRef(false);const nextKey=useRef(0);
+ async function refresh(){const [c,q]=await Promise.all([api<{customers:Customer[]}>("/api/admin/customers"),api<{quotes:Quote[]}>("/api/admin/quotes")]);setCustomers(c.customers);setQuotes(q.quotes);setLoadError("");}
+ useEffect(()=>{void refresh().catch(e=>setLoadError(e.message));},[]);
+ useEffect(()=>{setPreview(null);},[materials]);
+ function changed(){setPreview(null);setSavedId(undefined);setMessage("");setError("");}
+ function selectCustomer(id:string){setCustomerId(id);changed();document.getElementById("novo-orcamento")?.scrollIntoView({behavior:"smooth",block:"start"});}
+ async function customerSaved(customer:Customer){setCustomers(v=>[...v.filter(c=>c.id!==customer.id),customer].sort((a,b)=>a.name.localeCompare(b.name,"pt-BR")));setCustomerId(customer.id);changed();try{await refresh();}catch(e){setLoadError((e as Error).message);}}
+ function updateLine(key:number,patch:Partial<Line>){changed();setLines(v=>v.map(l=>l.key===key?{...l,...patch}:l));}
+ async function quote(e:FormEvent<HTMLFormElement>){
+  e.preventDefault();if(inFlight.current)return;
+  const save=(e.nativeEvent as SubmitEvent).submitter?.getAttribute("value")==="save";
+  if(save&&!customerId){setError("Selecione um cliente para salvar. Você pode calcular sem selecionar cliente.");return;}
+  if(save&&savedId){setMessage("Este rascunho já foi salvo. Use Novo orçamento para iniciar outro.");return;}
+  const data=new FormData(e.currentTarget);const money=(name:string)=>Math.round(Number(String(data.get(name)).replace(",","."))*100);
+  inFlight.current=true;setBusy(true);setError("");setMessage("");
+  try{
+   const result=await api<Preview>("/api/admin/quotes"+(save?"":"/preview"),jsonBody("POST",{customerId,capacityBtu:Number(data.get("capacity")),lineLengthM:Number(data.get("length")),notes:data.get("notes"),lines:lines.map(l=>({materialId:l.materialId,quantity:Number(l.quantity.replace(",",".")),suppliedBy:supplyMode==="partial"?l.suppliedBy:supplyMode})),laborCents:money("labor"),travelCents:money("travel"),overheadCents:money("overhead"),marginPercent:Number(data.get("margin")),supplyMode}));
+   setPreview(result);
+   if(save){setSavedId(result.quoteId);setMessage("Orçamento salvo como rascunho. O PDF está disponível abaixo.");try{await refresh();}catch{setLoadError("Rascunho salvo, mas a lista não atualizou. Toque em Atualizar lista.");}}
+  }catch(e){setError((e as Error).message);}finally{inFlight.current=false;setBusy(false);}
+ }
+ function reset(){formRef.current?.reset();setCustomerId("");setSupplyMode("airsul");setLines([]);changed();}
+ async function download(id:string){if(downloading)return;setDownloading(id);setError("");setPdfError("");setPdfMessage("");try{const r=await fetch("/api/admin/quotes/"+id+"/pdf");if(r.status===401){window.dispatchEvent(new Event("airsul:session-expired"));return;}if(!r.ok)throw new Error("Não foi possível gerar o PDF. Tente novamente.");const url=URL.createObjectURL(await r.blob());const a=document.createElement("a");a.href=url;a.download="airsul-"+id+".pdf";document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);setMessage("PDF preparado para download.");setPdfMessage("PDF preparado para download.");}catch(e){setError((e as Error).message);setPdfError((e as Error).message);}finally{setDownloading(undefined);}}
+ return <><CustomersPanel customers={customers} onSaved={customerSaved} onSelect={selectCustomer}/>
+ <section className="panel" id="novo-orcamento"><h2>Novo orçamento</h2><p className="muted">Calcule livremente. Para salvar o rascunho, selecione um cliente.</p><form ref={formRef} onSubmit={quote} onChange={changed}><fieldset className="form-fields" disabled={busy}><label>Cliente do orçamento<select aria-label="Cliente do orçamento" value={customerId} onChange={e=>setCustomerId(e.target.value)}><option value="">Selecione para salvar</option>{customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label><div className="form-grid"><label>Capacidade (BTU)<input name="capacity" type="number" min={1000} max={200000} defaultValue={12000} required/></label><label>Linha (m)<input name="length" type="number" min={0} max={1000} step="0.01" defaultValue={3} required/></label></div><label>Fornecimento<select aria-label="Fornecimento" value={supplyMode} onChange={e=>setSupplyMode(e.target.value)}><option value="airsul">AirSul fornece todos os materiais</option><option value="client">Cliente fornece todos os materiais</option><option value="partial">Fornecimento parcial</option></select></label>
+ {lines.map((line,i)=><fieldset key={line.key}><legend>Material {i+1}</legend><label>Material do item {i+1}<select aria-label={"Material do item "+(i+1)} value={line.materialId} onChange={e=>updateLine(line.key,{materialId:e.target.value})} required><option value="">Selecione</option>{materials.filter(m=>m.active).map(m=><option key={m.id} value={m.id}>{m.name} ({m.unit})</option>)}</select></label><label>Quantidade do item {i+1}<input type="number" min="0.001" max="10000" step="0.001" value={line.quantity} onChange={e=>updateLine(line.key,{quantity:e.target.value})} required/></label>{supplyMode==="partial"?<label>Fornecedor do item {i+1}<select aria-label={"Fornecedor do item "+(i+1)} value={line.suppliedBy} onChange={e=>updateLine(line.key,{suppliedBy:e.target.value as Line["suppliedBy"]})}><option value="airsul">AirSul</option><option value="client">Cliente</option></select></label>:<p className="muted">Fornecido {supplyMode==="client"?"pelo cliente, sem custo de material para a AirSul.":"pela AirSul."}</p>}<button className="secondary compact" type="button" onClick={()=>{setLines(v=>v.filter(l=>l.key!==line.key));changed();}} aria-label={"Remover material "+(i+1)}>Remover material</button></fieldset>)}
+ <button className="secondary" type="button" disabled={lines.length>=100||!materials.some(m=>m.active)} onClick={()=>{setLines(v=>[...v,{key:nextKey.current++,materialId:"",quantity:"1",suppliedBy:"airsul"}]);changed();}}>Adicionar material</button>{!materials.some(m=>m.active)&&<p className="muted">Cadastre um material no catálogo para incluí-lo no orçamento. Você também pode orçar somente mão de obra.</p>}
+ <div className="form-grid">{[["labor","Mão de obra"],["travel","Deslocamento"],["overhead","Despesas"]].map(([name,label])=><label key={name}>{label} (R$)<input name={name} type="number" min={0} max={1000000} step="0.01" defaultValue={0} required/></label>)}<label>Margem sobre venda (%)<input name="margin" type="number" min={0} max={90} step="0.01" defaultValue={25} required/></label></div><label>Observações internas<textarea name="notes" maxLength={2000} defaultValue="" rows={2}/></label><div className="actions"><button type="submit" value="preview">{busy?"Processando...":"Calcular"}</button><button type="submit" value="save" disabled={!!savedId}>{savedId?"Rascunho salvo":"Salvar rascunho"}</button><button className="secondary" type="button" onClick={reset}>Novo orçamento</button></div></fieldset></form>
+ {preview&&<div className="quote-summary" role="status"><span>Custo interno<strong>{currency(preview.totalCostCents/100)}</strong></span><span>Preço proposto<strong>{currency(preview.proposedPriceCents/100)}</strong></span><span>Lucro bruto<strong>{currency(preview.grossProfitCents/100)}</strong></span></div>}{error&&<p role="alert" className="error">{error}</p>}{message&&<p role="status" className="success">{message}</p>}{savedId&&<button className="secondary" type="button" disabled={!!downloading} onClick={()=>void download(savedId)}>{downloading===savedId?"Preparando PDF...":"Baixar PDF do rascunho salvo"}</button>}</section>
+ <section className="panel" id="orcamentos"><div className="section-heading"><h2>Orçamentos salvos</h2><button type="button" className="secondary compact" onClick={()=>void refresh().catch(e=>setLoadError(e.message))}>Atualizar lista</button></div>{loadError&&<p role="alert" className="error">{loadError}</p>}{pdfError&&<p role="alert" className="error">{pdfError}</p>}{pdfMessage&&<p role="status" className="success">{pdfMessage}</p>}{quotes.length===0?<p className="muted">Nenhum orçamento salvo.</p>:<ul className="customer-list">{quotes.map(q=><li key={q.id}><div><strong>{q.customer_name||"Cliente não informado"}</strong><small>{new Date(q.created_at).toLocaleDateString("pt-BR")} · {statuses[q.status]||q.status} · {currency(Number(q.proposed_price))}</small></div><button type="button" className="secondary compact" disabled={!!downloading} onClick={()=>void download(q.id)} aria-label={"Baixar PDF de "+q.customer_name}>{downloading===q.id?"Preparando...":"Baixar PDF"}</button></li>)}</ul>}</section></>;
 }

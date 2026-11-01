@@ -35,7 +35,7 @@ O provisionamento só funciona enquanto não existir administrador. Usa transaç
 
 ## Funcionalidades
 
-Cadastro e listagem de clientes e materiais; simulação interna com margem sobre venda; fornecimento AirSul, cliente ou parcial; gravação transacional de rascunhos; PDF autenticado com cliente, itens e valor proposto. Custos, margens e observações internas não são incluídos no PDF. O cadastro ainda não tem edição/exclusão; aprovações e acompanhamento comercial permanecem para a próxima evolução.
+Cadastro, busca, listagem e edição de clientes e materiais; simulação interna com margem sobre venda; fornecimento AirSul, cliente ou parcial; gravação transacional de rascunhos; PDF autenticado com cliente, itens e valor proposto. Custos, margens e observações internas não são incluídos no PDF. A exclusão de cadastros, as aprovações e o acompanhamento comercial permanecem para a próxima evolução. O acesso público do cliente continua pelo WhatsApp, sem login.
 
 ## Teste integrado
 

@@ -12,3 +12,5 @@
 - PDF exige sessão e consulta somente campos comerciais. Não contém custos, margem ou notas internas. Rascunhos não confirmam contratação.
 
 Limitações conhecidas: ainda não há MFA, recuperação de senha, trilha de auditoria persistente ou limpeza programada das sessões expiradas. Expiração é sempre verificada nas consultas. Aprovação comercial e preços públicos não são automatizados.
+
+Edição de cadastros: a role runtime recebe UPDATE apenas nas colunas name/unit/unit_cost de materials e name/phone/email de customers. A alteração de custos não recalcula orçamentos já salvos.

@@ -3,6 +3,7 @@ import type { FormEvent } from "react";
 import MaterialsPanel from "./MaterialsPanel";
 import QuotesPanel from "./QuotesPanel";
 import type { Material, NewMaterial } from "./MaterialsPanel";
+import {api,jsonBody} from "./api";
 
 export default function AdminPage() {
   const [email, setEmail] = useState("");
@@ -11,17 +12,20 @@ export default function AdminPage() {
   const [materials, setMaterials] = useState<Material[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [checking, setChecking] = useState(true);
 
   async function refresh() {
-    const response = await fetch("/api/admin/materials");
-    if (!response.ok) throw new Error("Não foi possível carregar os materiais.");
-    setMaterials((await response.json()).materials);
+    setMaterials((await api<{materials:Material[]}>("/api/admin/materials")).materials);
   }
 
   useEffect(() => {
+    const expired=()=>{setLoggedIn(false);setMaterials([]);setError("Sua sessão expirou. Entre novamente.");};
+    window.addEventListener("airsul:session-expired",expired);
     fetch("/api/admin/me").then(async response => {
       if (response.ok) { setLoggedIn(true); await refresh(); }
-    }).catch(() => setError("Servidor administrativo indisponível."));
+      else if(response.status!==401) setError("Servidor administrativo indisponível. Tente novamente em instantes.");
+    }).catch(() => setError("Servidor administrativo indisponível.")).finally(()=>setChecking(false));
+    return ()=>window.removeEventListener("airsul:session-expired",expired);
   }, []);
 
   async function login(event: FormEvent<HTMLFormElement>) {
@@ -45,22 +49,19 @@ export default function AdminPage() {
     }
   }
 
-  async function createMaterial(material: NewMaterial) {
-    const response = await fetch("/api/admin/materials", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(material)
-    });
-    if (!response.ok) throw new Error("Não foi possível cadastrar o material.");
-    await refresh();
+  async function saveMaterial(material: NewMaterial,id?:string) {
+    const result=await api<{material:Material}>("/api/admin/materials"+(id?"/"+id:""),jsonBody(id?"PUT":"POST",material));
+    setMaterials(previous=>[...previous.filter(m=>m.id!==result.material.id),result.material].sort((a,b)=>a.name.localeCompare(b.name,"pt-BR")));
   }
 
   async function logout() {
+    if(busy)return;
+    setBusy(true);
     try {
       const response = await fetch("/api/admin/logout", { method: "POST", headers: {"Content-Type":"application/json"}, body: "{}" });
       if (!response.ok) throw new Error("Não foi possível encerrar a sessão. Tente novamente.");
       setLoggedIn(false); setMaterials([]); setError("");
-    } catch (err) {setError(err instanceof Error ? err.message : "Falha ao sair.");}
+    } catch (err) {setError(err instanceof Error ? err.message : "Falha ao sair.");} finally {setBusy(false);}
   }
 
   return <main className="admin-page">
@@ -68,9 +69,9 @@ export default function AdminPage() {
       <div className="brand">AirSul <small>ADMINISTRAÇÃO</small></div>
       <a className="contact" href="https://airsul-orcamentos.onrender.com">Voltar ao site</a>
     </header>
-    {loggedIn ? <>
-      <section className="panel"><button onClick={logout}>Sair</button></section>
-      <MaterialsPanel materials={materials} onCreate={createMaterial} />
+    {checking ? <section className="panel"><p role="status">Verificando acesso...</p></section> : loggedIn ? <>
+      <section className="panel admin-toolbar"><nav aria-label="Seções do painel"><a href="#materiais">Materiais</a><a href="#clientes">Clientes</a><a href="#novo-orcamento">Novo orçamento</a><a href="#orcamentos">Orçamentos salvos</a></nav><button type="button" className="secondary compact" disabled={busy} onClick={logout}>{busy?"Saindo...":"Sair"}</button></section>
+      <MaterialsPanel materials={materials} onSave={saveMaterial} />
       <QuotesPanel materials={materials} />
       {error && <p className="error" role="alert">{error}</p>}
     </> : <section className="panel">
