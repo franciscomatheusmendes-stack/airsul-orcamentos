@@ -35,7 +35,7 @@ O provisionamento só funciona enquanto não existir administrador. Usa transaç
 
 ## Funcionalidades
 
-Cadastro, busca, listagem e edição de clientes e materiais; simulação interna com margem sobre venda; fornecimento AirSul, cliente ou parcial; gravação transacional de rascunhos; PDF autenticado com cliente, itens e valor proposto. Custos, margens e observações internas não são incluídos no PDF. A exclusão de cadastros, as aprovações e o acompanhamento comercial permanecem para a próxima evolução. O acesso público do cliente continua pelo WhatsApp, sem login.
+Cadastro, busca, listagem e edição de clientes e materiais; simulação interna com margem sobre venda; fornecimento AirSul, cliente ou parcial; gravação transacional de rascunhos; PDF autenticado com cliente, itens e valor proposto. Custos, margens e observações internas não são incluídos no PDF. A exclusão de cadastros, as aprovações e o acompanhamento comercial permanecem para a próxima evolução. O acesso público do cliente continua pelo WhatsApp, sem login, com pergunta Sim/Não para kit de instalação e estimador residencial de BTU/h. A distância e a capacidade podem ficar a confirmar. Metodologia e limites em docs/PUBLIC_CAPACITY.md.
 
 ## Teste integrado
 
