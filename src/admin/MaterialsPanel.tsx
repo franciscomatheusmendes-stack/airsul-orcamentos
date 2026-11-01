@@ -23,7 +23,7 @@ export default function MaterialsPanel({ materials, loading = false, onCreate }:
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const value = Number(cost.replace(",", "."));
-  const valid = name.trim().length >= 2 && Number.isFinite(value) && value >= 0 && value <= 1000000;
+  const valid = name.trim().length >= 2 && cost.trim() !== "" && Number.isFinite(value) && value >= 0 && value <= 1000000;
 
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();

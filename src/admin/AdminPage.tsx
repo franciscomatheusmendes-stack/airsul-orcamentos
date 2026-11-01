@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import MaterialsPanel from "./MaterialsPanel";
+import QuotesPanel from "./QuotesPanel";
 import type { Material, NewMaterial } from "./MaterialsPanel";
 
 export default function AdminPage() {
@@ -55,19 +56,23 @@ export default function AdminPage() {
   }
 
   async function logout() {
-    await fetch("/api/admin/logout", { method: "POST" });
-    setLoggedIn(false);
-    setMaterials([]);
+    try {
+      const response = await fetch("/api/admin/logout", { method: "POST", headers: {"Content-Type":"application/json"}, body: "{}" });
+      if (!response.ok) throw new Error("Não foi possível encerrar a sessão. Tente novamente.");
+      setLoggedIn(false); setMaterials([]); setError("");
+    } catch (err) {setError(err instanceof Error ? err.message : "Falha ao sair.");}
   }
 
-  return <main>
+  return <main className="admin-page">
     <header className="header">
       <div className="brand">AirSul <small>ADMINISTRAÇÃO</small></div>
-      <a className="contact" href="/">Voltar ao site</a>
+      <a className="contact" href="https://airsul-orcamentos.onrender.com">Voltar ao site</a>
     </header>
     {loggedIn ? <>
       <section className="panel"><button onClick={logout}>Sair</button></section>
       <MaterialsPanel materials={materials} onCreate={createMaterial} />
+      <QuotesPanel materials={materials} />
+      {error && <p className="error" role="alert">{error}</p>}
     </> : <section className="panel">
       <h2>Acesso administrativo</h2>
       <p className="muted">Acesso restrito à equipe autorizada.</p>

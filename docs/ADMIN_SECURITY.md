@@ -1,9 +1,14 @@
-# Segurança do painel administrativo
+# Segurança administrativa
 
-O catálogo de materiais é acessível apenas na API com `Authorization: Bearer <token>`.
+- Autorização no servidor restrita a francisco.matheusmendes@gmail.com; nenhuma rota pública retorna custos.
+- Senhas scrypt com sal aleatório. Não há senha padrão, senha no Git ou token administrativo no frontend.
+- Sessões opacas de 256 bits; somente SHA-256 do token fica no banco. Cookie HttpOnly, Secure em produção, SameSite=Strict, escopo /api/admin, duração de oito horas.
+- Logout revoga a sessão no banco; falha de revogação não é apresentada como sucesso.
+- Escritas exigem Origin exata e JSON; não há CORS entre origens. O frontend administrativo é servido pela própria API.
+- Limites por IP para login, primeiro acesso e API; limites em memória, adequados apenas à instância única atual. Reinício zera contadores; escalabilidade exige armazenamento compartilhado.
+- Consultas parametrizadas, validação de entradas, respostas privadas sem cache e cabeçalhos Helmet.
+- ADMIN_ENABLED fecha o painel por padrão. ADMIN_SETUP_TOKEN fica somente no Render; formulário de primeiro acesso não aceita escolher outro email nem sobrescrever conta.
+- Runtime usa a role SQL airsul_runtime: sem criação de bancos/roles ou bypass RLS. SELECT/INSERT nas tabelas da aplicação e DELETE somente em admin_sessions para logout. Não usa proprietário do banco.
+- PDF exige sessão e consulta somente campos comerciais. Não contém custos, margem ou notas internas. Rascunhos não confirmam contratação.
 
-**Estado atual:** autenticação provisória para integração técnica; não é login de usuários nem sessão segura para uso no navegador. Não colocar o token no código React, em variáveis `VITE_*`, no localStorage, nem em URLs. Não publicar o painel antes de implementar autenticação por usuário e permissões.
-
-No servidor configure `DATABASE_URL` e `AIRSUL_ADMIN_API_TOKEN` (segredo aleatório com 32 ou mais caracteres). Nunca versionar valores reais.
-
-Rotas privadas: `GET /api/admin/materials`, `POST /api/admin/materials`. A API usa consultas parametrizadas, validação de entradas e não retorna custos nas rotas públicas. Adicionar rate limit, auditoria, gestão de usuários e proteção de sessão antes da publicação.
+Limitações conhecidas: ainda não há MFA, recuperação de senha, trilha de auditoria persistente ou limpeza programada das sessões expiradas. Expiração é sempre verificada nas consultas. Aprovação comercial e preços públicos não são automatizados.
