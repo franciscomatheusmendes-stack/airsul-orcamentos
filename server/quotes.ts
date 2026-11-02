@@ -1,93 +1,57 @@
-import { Router } from "express";
-import type pg from "pg";
-import { requireSession } from "./session.js";
-import PDFDocument from "pdfkit";
-
-type QuoteLine = { materialId: string; quantity: number; suppliedBy: "airsul" | "client" };
-const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const cents = (n: unknown) => typeof n === "number" && Number.isSafeInteger(n) && n >= 0 && n <= 100000000;
-const validLine = (v: unknown): v is QuoteLine => {
-  if (!v || typeof v !== "object") return false;
-  const x = v as Record<string, unknown>;
-  return typeof x.materialId === "string" && uuid.test(x.materialId) &&
-    typeof x.quantity === "number" && Number.isFinite(x.quantity) &&
-    x.quantity > 0 && x.quantity <= 10000 && Math.abs(x.quantity*1000-Math.round(x.quantity*1000)) < 1e-6 &&
-    (x.suppliedBy === "airsul" || x.suppliedBy === "client");
-};
-export function quoteRoutes(pool: pg.Pool) {
-  const router = Router();
-  router.use(requireSession(pool));
-  router.get("/", async (_req, res) => {
-    try { res.json({quotes:(await pool.query("SELECT q.id,q.status,q.proposed_price,q.created_at,c.name AS customer_name FROM quotes q LEFT JOIN customers c ON c.id=q.customer_id ORDER BY q.created_at DESC LIMIT 100")).rows}); }
-    catch { res.status(503).json({error:"Falha ao consultar orçamentos"}); }
-  });
-  router.get("/:id/pdf", async (req,res) => {
-    if (!uuid.test(req.params.id)) {res.status(400).json({error:"ID inválido"});return;}
-    try {
-      const quote = (await pool.query("SELECT q.id,q.capacity_btu,q.line_length_m,q.supply_mode,q.proposed_price,q.created_at,c.name AS customer_name FROM quotes q JOIN customers c ON c.id=q.customer_id WHERE q.id=$1",[req.params.id])).rows[0];
-      if (!quote) {res.status(404).json({error:"Orçamento inexistente"});return;}
-      const items = (await pool.query("SELECT description,quantity FROM quote_items WHERE quote_id=$1 ORDER BY id",[quote.id])).rows;
-      const doc = new PDFDocument({size:"A4",margin:50,info:{Title:"Orçamento AirSul"}});
-      res.type("application/pdf").set("Content-Disposition",'attachment; filename="airsul-'+quote.id+'.pdf"');
-      doc.pipe(res);
-      doc.fontSize(24).fillColor("#126879").text("AirSul Climatização");
-      doc.moveDown().fontSize(16).fillColor("#172936").text("Proposta de instalação");
-      doc.moveDown().fontSize(10).text("Referência: "+quote.id);
-      doc.text("Cliente: "+quote.customer_name);
-      doc.text("Capacidade: "+quote.capacity_btu+" BTU | Linha: "+quote.line_length_m+" m");
-      doc.text("Materiais: "+({airsul:"AirSul",client:"Cliente",partial:"Fornecimento parcial"}[quote.supply_mode as string] || quote.supply_mode));
-      doc.moveDown().fontSize(12).text("Materiais previstos");
-      items.forEach(item => {doc.moveDown(0.5).fontSize(10).text(item.quantity+" x "+item.description);});
-      doc.moveDown().fontSize(16).text("Valor proposto: "+new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(Number(quote.proposed_price)));
-      doc.moveDown().fontSize(10).text("Proposta sujeita à confirmação técnica e às condições acordadas com a AirSul. Este documento não confirma agendamento ou contratação.");
-      doc.end();
-    } catch { if (!res.headersSent) res.status(503).json({error:"Falha ao gerar PDF"}); else res.end(); }
-  });
-  router.post(["/preview", "/"], async (req, res) => {
-    const { lines, laborCents, travelCents, overheadCents, marginPercent, supplyMode } = req.body || {};
-    if (!Array.isArray(lines) || lines.length > 100 || !lines.every(validLine) ||
-        !cents(laborCents) || !cents(travelCents) || !cents(overheadCents) ||
-        typeof marginPercent !== "number" || !Number.isFinite(marginPercent) ||
-        marginPercent < 0 || marginPercent > 90 ||
-        !["airsul","client","partial"].includes(supplyMode) ||
-        (supplyMode === "airsul" && lines.some((x: QuoteLine) => x.suppliedBy !== "airsul")) ||
-        (supplyMode === "client" && lines.some((x: QuoteLine) => x.suppliedBy !== "client"))) {
-      res.status(400).json({ error: "Dados inválidos" }); return;
-    }
-    try {
-      const ids = [...new Set((lines as QuoteLine[]).map(x => x.materialId))];
-      const result = await pool.query("SELECT id, name, unit, unit_cost FROM materials WHERE active = true AND id = ANY($1::uuid[])", [ids]);
-      if (result.rows.length !== ids.length) { res.status(400).json({error:"Material inexistente ou inativo"}); return; }
-      const byId = new Map<string, {name:string;unit:string;unit_cost:string}>(result.rows.map(r => [r.id,r]));
-      const items = (lines as QuoteLine[]).map(line => {
-        const material = byId.get(line.materialId)!;
-        const unitCostCents = Math.round(Number(material.unit_cost) * 100);
-        const costCents = line.suppliedBy === "airsul" ? Math.round(unitCostCents * line.quantity) : 0;
-        return {materialId:line.materialId,name:material.name,unit:material.unit,quantity:line.quantity,suppliedBy:line.suppliedBy,costCents};
-      });
-      const materialCostCents = items.reduce((sum,item) => sum + item.costCents, 0);
-      const totalCostCents = materialCostCents + laborCents + travelCents + overheadCents;
-      const proposedPriceCents = Math.round(totalCostCents / (1 - marginPercent / 100));
-      if (!Number.isSafeInteger(proposedPriceCents)) {res.status(400).json({error:"Total fora do limite"});return;}
-      const summary = {items,materialCostCents,laborCents,travelCents,overheadCents,totalCostCents,proposedPriceCents,grossProfitCents:proposedPriceCents-totalCostCents,notice:"Simulação interna, não é orçamento aprovado."};
-      if (req.path === "/preview") {res.json(summary);return;}
-      const {customerId,capacityBtu,lineLengthM,notes} = req.body;
-      if (typeof customerId !== "string" || !uuid.test(customerId) || !Number.isInteger(capacityBtu) || capacityBtu < 1000 || capacityBtu > 200000 || typeof lineLengthM !== "number" || !Number.isFinite(lineLengthM) || lineLengthM < 0 || lineLengthM > 1000 || typeof notes !== "string" || notes.length > 2000) {
-        res.status(400).json({error:"Dados de instalação inválidos"});return;
-      }
-      const client = await pool.connect();
-      try {
-        await client.query("BEGIN");
-        if (!(await client.query("SELECT id FROM customers WHERE id=$1",[customerId])).rowCount) {await client.query("ROLLBACK");res.status(400).json({error:"Cliente inexistente"});return;}
-        const quote = (await client.query("INSERT INTO quotes(customer_id,capacity_btu,line_length_m,supply_mode,status,internal_cost,proposed_price,notes) VALUES($1,$2,$3,$4,'draft',$5,$6,$7) RETURNING id",[customerId,capacityBtu,lineLengthM,supplyMode,(totalCostCents/100).toFixed(2),(proposedPriceCents/100).toFixed(2),notes])).rows[0];
-        for (const item of items) {
-          const unitCost = item.suppliedBy === "client" ? "0.00" : byId.get(item.materialId)!.unit_cost;
-          await client.query("INSERT INTO quote_items(quote_id,material_id,description,quantity,unit_cost) VALUES($1,$2,$3,$4,$5)",[quote.id,item.materialId,item.name+" ("+item.unit+"; "+(item.suppliedBy === "client" ? "cliente" : "AirSul")+")",item.quantity,unitCost]);
-        }
-        await client.query("COMMIT");
-        res.status(201).json({quoteId:quote.id,...summary});
-      } catch (err) {await client.query("ROLLBACK");throw err;} finally {client.release();}
-    } catch { res.status(500).json({error:"Falha ao calcular orçamento"}); }
-  });
-  return router;
+import {Router} from 'express';
+import type pg from 'pg';
+import {requireSession} from './session.js';
+import {isId,text} from './validation.js';
+import {parsePricing,priceQuote,InputError} from './quoteEngine.js';
+import {quotePdf} from './quotePdf.js';
+const statuses=['draft','pending_review','approved','sent','accepted','rejected'];
+export function quoteRoutes(pool:pg.Pool){
+ const router=Router();router.use(requireSession(pool));
+ router.get('/',async(_req,res)=>{try{res.json({quotes:(await pool.query('SELECT q.id,q.customer_id,q.status,q.proposed_price,q.created_at,q.version,c.name AS customer_name,c.phone AS customer_phone FROM quotes q LEFT JOIN customers c ON c.id=q.customer_id ORDER BY q.created_at DESC LIMIT 200')).rows});}catch{res.status(503).json({error:'Não foi possível carregar os orçamentos.'});}});
+ router.get('/:id/pdf',async(req,res)=>{
+  if(!isId(req.params.id)){res.sendStatus(400);return;}
+  try{const q=(await pool.query('SELECT q.*,c.name AS customer_name,c.phone AS customer_phone FROM quotes q JOIN customers c ON c.id=q.customer_id WHERE q.id=$1',[req.params.id])).rows[0];if(!q){res.status(404).json({error:'Orçamento não encontrado.'});return;}const items=(await pool.query('SELECT description,quantity FROM quote_items WHERE quote_id=$1 ORDER BY id',[q.id])).rows;quotePdf(res,q,items);}catch{if(!res.headersSent)res.status(503).json({error:'Não foi possível gerar o PDF.'});else res.end();}
+ });
+ router.get('/:id',async(req,res)=>{if(!isId(req.params.id)){res.sendStatus(400);return;}try{const q=(await pool.query('SELECT id,customer_id,status,pricing_input,version FROM quotes WHERE id=$1',[req.params.id])).rows[0];res.status(q?200:404).json(q?{quote:q}:{error:'Orçamento não encontrado.'});}catch{res.status(503).json({error:'Não foi possível abrir o orçamento.'});}});
+ router.post('/:id/duplicate',async(req,res)=>{
+  if(!isId(req.params.id)||!Number.isInteger(req.body?.version)){res.sendStatus(400);return;}
+  let client:pg.PoolClient|undefined;try{client=await pool.connect();await client.query('BEGIN');
+   const original=(await client.query('SELECT * FROM quotes WHERE id=$1 FOR SHARE',[req.params.id])).rows[0];
+   if(!original||original.version!==req.body.version){await client.query('ROLLBACK');res.status(409).json({error:'O orçamento foi alterado. Atualize a lista e tente novamente.'});return;}
+   const input=original.pricing_input?{...original.pricing_input,requestId:null}:null;
+   const q=(await client.query("INSERT INTO quotes(customer_id,capacity_btu,line_length_m,supply_mode,status,internal_cost,proposed_price,notes,pricing_input,validity_days,execution_deadline,payment_terms) SELECT customer_id,capacity_btu,line_length_m,supply_mode,'draft',internal_cost,proposed_price,notes,$2,validity_days,execution_deadline,payment_terms FROM quotes WHERE id=$1 RETURNING id",[req.params.id,input?JSON.stringify(input):null])).rows[0];
+   await client.query('INSERT INTO quote_items(quote_id,material_id,description,quantity,unit_cost) SELECT $1,material_id,description,quantity,unit_cost FROM quote_items WHERE quote_id=$2',[q.id,req.params.id]);await client.query("INSERT INTO quote_events(quote_id,action,before_snapshot) VALUES($1,'duplicated',$2)",[q.id,JSON.stringify({sourceQuoteId:req.params.id})]);await client.query('COMMIT');res.status(201).json({quoteId:q.id});
+  }catch{if(client)await client.query('ROLLBACK').catch(()=>{});res.status(503).json({error:'Não foi possível duplicar.'});}finally{client?.release();}
+ });
+ router.put('/:id/status',async(req,res)=>{
+  if(!isId(req.params.id)||!statuses.includes(req.body?.status)||!Number.isInteger(req.body?.version)){res.status(400).json({error:'Situação inválida.'});return;}
+  let client:pg.PoolClient|undefined;try{client=await pool.connect();await client.query('BEGIN');const before=(await client.query('SELECT * FROM quotes WHERE id=$1 FOR UPDATE',[req.params.id])).rows[0];if(!before||before.version!==req.body.version){await client.query('ROLLBACK');res.status(409).json({error:'O orçamento foi alterado. Atualize a lista.'});return;}
+   await client.query('UPDATE quotes SET status=$1,version=version+1,updated_at=now() WHERE id=$2',[req.body.status,req.params.id]);await client.query("INSERT INTO quote_events(quote_id,action,before_snapshot) VALUES($1,'status_changed',$2)",[req.params.id,JSON.stringify({status:before.status,version:before.version,newStatus:req.body.status})]);await client.query('COMMIT');res.json({updated:true});
+  }catch{if(client)await client.query('ROLLBACK').catch(()=>{});res.status(503).json({error:'Não foi possível atualizar a situação.'});}finally{client?.release();}
+ });
+ router.post('/preview',async(req,res)=>{try{const input=parsePricing(req.body,false);res.json(await priceQuote(pool,input));}catch(e){res.status(e instanceof InputError?400:503).json({error:e instanceof InputError?e.message:'Não foi possível calcular.'});}});
+ const save:import('express').RequestHandler=async(req,res)=>{
+  const id=req.params.id;let client:pg.PoolClient|undefined;
+  try{
+   if((id&&!isId(id))||!isId(req.body?.customerId))throw new InputError('Selecione um cliente válido.');
+   const input=parsePricing(req.body);client=await pool.connect();await client.query('BEGIN');
+   let before:any=null;if(id){before=(await client.query('SELECT * FROM quotes WHERE id=$1 FOR UPDATE',[id])).rows[0];if(!before||before.version!==req.body.version){await client.query('ROLLBACK');res.status(409).json({error:'Este orçamento mudou em outra tela. Abra novamente para editar.'});return;}if(!['draft','pending_review'].includes(before.status)){await client.query('ROLLBACK');res.status(409).json({error:'Para preservar o histórico, duplique este orçamento antes de alterar.'});return;}}
+   if(!(await client.query('SELECT id FROM customers WHERE id=$1',[req.body.customerId])).rowCount)throw new InputError('Cliente não encontrado.');
+   if(id){const linked=(await client.query('SELECT customer_id FROM service_requests WHERE quote_id=$1 LIMIT 1',[id])).rows[0];if(linked&&linked.customer_id!==req.body.customerId)throw new InputError('Este orçamento pertence a um pedido do site. Duplique para usar com outro cliente.');}
+   if(input.requestId){const r=(await client.query('SELECT customer_id FROM service_requests WHERE id=$1 FOR UPDATE',[input.requestId])).rows[0];if(!r||r.customer_id!==req.body.customerId)throw new InputError('Prepare o cliente a partir da solicitação antes de salvar.');}
+   const summary=await priceQuote(client,input);
+   const values=[req.body.customerId,input.capacityBtu,input.lineLengthM,input.supplyMode,(summary.totalCostCents/100).toFixed(2),(summary.proposedPriceCents/100).toFixed(2),input.notes,JSON.stringify(input),input.validityDays,input.executionDeadline,input.paymentTerms];
+   let q:any;
+   if(id){const items=(await client.query('SELECT material_id,description,quantity,unit_cost FROM quote_items WHERE quote_id=$1',[id])).rows;await client.query("INSERT INTO quote_events(quote_id,action,before_snapshot) VALUES($1,'edited',$2)",[id,JSON.stringify({...before,items})]);q=(await client.query('UPDATE quotes SET customer_id=$1,capacity_btu=$2,line_length_m=$3,supply_mode=$4,internal_cost=$5,proposed_price=$6,notes=$7,pricing_input=$8,validity_days=$9,execution_deadline=$10,payment_terms=$11,version=version+1,updated_at=now() WHERE id=$12 RETURNING id,version',[...values,id])).rows[0];await client.query('DELETE FROM quote_items WHERE quote_id=$1',[id]);}
+   else{q=(await client.query("INSERT INTO quotes(customer_id,capacity_btu,line_length_m,supply_mode,status,internal_cost,proposed_price,notes,pricing_input,validity_days,execution_deadline,payment_terms) VALUES($1,$2,$3,$4,'draft',$5,$6,$7,$8,$9,$10,$11) RETURNING id,version",values)).rows[0];await client.query("INSERT INTO quote_events(quote_id,action) VALUES($1,'created')",[q.id]);}
+   for(const item of summary.items)await client.query('INSERT INTO quote_items(quote_id,material_id,description,quantity,unit_cost) VALUES($1,$2,$3,$4,$5)',[q.id,item.materialId,item.name+' ('+item.unit+'; '+(item.suppliedBy==='client'?'cliente':'AirSul')+')',item.quantity,(item.unitCostCents/100).toFixed(2)]);
+   if(input.requestId)await client.query("UPDATE service_requests SET quote_id=$1,status='quoted',updated_at=now() WHERE id=$2",[q.id,input.requestId]);
+   await client.query('COMMIT');res.status(id?200:201).json({quoteId:q.id,version:q.version,...summary});
+  }catch(e){if(client)await client.query('ROLLBACK').catch(()=>{});res.status(e instanceof InputError?400:503).json({error:e instanceof InputError?e.message:'Não foi possível salvar o orçamento.'});}finally{client?.release();}
+ };
+ router.post('/',save);router.put('/:id',save);return router;
+}
+export function templateRoutes(pool:pg.Pool){const router=Router();router.use(requireSession(pool));
+ router.get('/',async(_req,res)=>{try{res.json({templates:(await pool.query('SELECT id,name,pricing_input FROM quote_templates ORDER BY name LIMIT 100')).rows});}catch{res.status(503).json({error:'Não foi possível carregar os modelos.'});}});
+ router.post('/',async(req,res)=>{try{if(!text(req.body?.name,80,2))throw new InputError('Dê um nome ao modelo.');const input=parsePricing(req.body.input);await priceQuote(pool,input);const template=(await pool.query('INSERT INTO quote_templates(name,pricing_input) VALUES($1,$2) RETURNING id,name',[req.body.name.trim(),JSON.stringify({...input,requestId:null,notes:''})])).rows[0];res.status(201).json({template});}catch(e){res.status(e instanceof InputError?400:503).json({error:e instanceof InputError?e.message:'Não foi possível salvar o modelo.'});}});return router;
 }

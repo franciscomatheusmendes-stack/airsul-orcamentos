@@ -4,6 +4,9 @@ import MaterialsPanel from "./MaterialsPanel";
 import QuotesPanel from "./QuotesPanel";
 import type { Material, NewMaterial } from "./MaterialsPanel";
 import {api,jsonBody} from "./api";
+import RequestsPanel from './RequestsPanel';
+import AgendaPanel from './AgendaPanel';
+import type {RequestDraft,ScheduleDraft} from './workflowTypes';
 
 export default function AdminPage() {
   const [email, setEmail] = useState("");
@@ -13,6 +16,10 @@ export default function AdminPage() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [checking, setChecking] = useState(true);
+  const [incoming,setIncoming]=useState<RequestDraft>();
+  const [schedule,setSchedule]=useState<ScheduleDraft>();
+  function prepareQuote(draft:RequestDraft){setIncoming(draft);document.getElementById('novo-orcamento')?.scrollIntoView({behavior:'smooth',block:'start'});}
+  function prepareSchedule(draft:ScheduleDraft){setSchedule(draft);document.getElementById('agenda')?.scrollIntoView({behavior:'smooth',block:'start'});}
 
   async function refresh() {
     setMaterials((await api<{materials:Material[]}>("/api/admin/materials")).materials);
@@ -70,9 +77,10 @@ export default function AdminPage() {
       <a className="contact" href="https://airsul-orcamentos.onrender.com">Voltar ao site</a>
     </header>
     {checking ? <section className="panel"><p role="status">Verificando acesso...</p></section> : loggedIn ? <>
-      <section className="panel admin-toolbar"><nav aria-label="Seções do painel"><a href="#materiais">Materiais</a><a href="#clientes">Clientes</a><a href="#novo-orcamento">Novo orçamento</a><a href="#orcamentos">Orçamentos salvos</a></nav><button type="button" className="secondary compact" disabled={busy} onClick={logout}>{busy?"Saindo...":"Sair"}</button></section>
-      <MaterialsPanel materials={materials} onSave={saveMaterial} />
-      <QuotesPanel materials={materials} />
+      <section className="panel admin-toolbar"><nav aria-label="Seções do painel"><a href="#solicitacoes">Pedidos do site</a><a href="#agenda">Agenda</a><a href="#materiais">Materiais</a><a href="#clientes">Clientes</a><a href="#novo-orcamento">Novo orçamento</a><a href="#orcamentos">Orçamentos salvos</a></nav><button type="button" className="secondary compact" disabled={busy} onClick={logout}>{busy?"Saindo...":"Sair"}</button></section>
+      <RequestsPanel onQuote={prepareQuote} onSchedule={prepareSchedule}/><MaterialsPanel materials={materials} onSave={saveMaterial} />
+      <QuotesPanel materials={materials} incoming={incoming} onSchedule={prepareSchedule}/>
+      <AgendaPanel draft={schedule}/>
       {error && <p className="error" role="alert">{error}</p>}
     </> : <section className="panel">
       <h2>Acesso administrativo</h2>

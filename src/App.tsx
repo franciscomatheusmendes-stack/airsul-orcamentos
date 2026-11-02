@@ -1,92 +1,44 @@
-import {useState} from "react";
-import type {FormEvent} from "react";
-import CapacityEstimator from "./CapacityEstimator";
-import {capacities} from "./lib/capacity";
-import type {CapacityEstimate} from "./lib/capacity";
-
-const phone="5551998193796";
-const services:Record<string,string>={installation:"Instalação",cleaning:"Higienização",maintenance:"Manutenção / diagnóstico",removal:"Desinstalação"};
-const number=(value:number)=>value.toLocaleString("pt-BR");
-
+import {useRef,useState} from 'react';
+import type {FormEvent} from 'react';
+import CapacityEstimator from './CapacityEstimator';
+import {capacities} from './lib/capacity';
+import type {CapacityEstimate} from './lib/capacity';
+const phone='5551998193796';
+const services:Record<string,{title:string;help:string}>={installation:{title:'Instalar um aparelho',help:'Instalar um ar novo ou em outro ambiente.'},cleaning:{title:'Limpar meu ar-condicionado',help:'Limpeza e higienização do aparelho.'},maintenance:{title:'Resolver um problema',help:'Não gela, faz barulho, pinga ou não liga.'},removal:{title:'Retirar um aparelho',help:'Remover o ar-condicionado do local.'},help:{title:'Não sei. Preciso de orientação',help:'Conte o que está acontecendo e nós ajudamos.'}};
+const number=(n:number)=>n.toLocaleString('pt-BR');
+const apiOrigin=import.meta.env.VITE_API_ORIGIN||'https://airsul-orcamentos-api.onrender.com';
 export default function App(){
-  const [name,setName]=useState("");
-  const [service,setService]=useState("installation");
-  const [city,setCity]=useState("");
-  const [contact,setContact]=useState("");
-  const [btu,setBtu]=useState("");
-  const [meters,setMeters]=useState("");
-  const [kit,setKit]=useState("");
-  const [notes,setNotes]=useState("");
-  const [submitted,setSubmitted]=useState(false);
-  const [estimate,setEstimate]=useState<CapacityEstimate|null>(null);
-  const meterValue=Number(meters.replace(",","."));
-  const metersKnown=meters.trim()!=="";
-  const validMeters=!metersKnown||(/^\d+(?:[.,]\d{1,2})?$/.test(meters.trim())&&meterValue>=0.5&&meterValue<=100);
-  const nameValid=name.trim().length>=2;
-  const cityValid=city.trim().length>=2;
-  const contactValid=!contact.trim()||(/^[+()\d\s-]{8,30}$/.test(contact.trim())&&contact.replace(/\D/g,"").length>=8);
-  const canSend=nameValid&&cityValid&&contactValid&&(service!=="installation"||(validMeters&&!!kit));
-
-  function requestQuote(event:FormEvent<HTMLFormElement>){
-    event.preventDefault();setSubmitted(true);
-    if(!canSend){requestAnimationFrame(()=>document.querySelector<HTMLElement>(".customer-page [aria-invalid=true]")?.focus());return;}
-    const message=[
-      "Olá! Gostaria de solicitar um orçamento com a AirSul.",
-      "Serviço: "+services[service],
-      "Nome: "+name.trim(),
-      "Cidade / bairro: "+city.trim(),
-      "Contato: "+(contact.trim()||"Pelo WhatsApp"),
-      "Capacidade: "+(btu?number(Number(btu))+" BTU/h":"A confirmar com a AirSul"),
-      ...(service==="installation"?[
-        "Possui kit de instalação: "+(kit==="yes"?"Sim (conferir itens e compatibilidade)":"Não (incluir materiais no orçamento)"),
-        "Distância estimada entre as unidades: "+(metersKnown?number(meterValue)+" m":"A confirmar")
-      ]:[]),
-      ...(estimate?[
-        "Estimativa inicial, sujeita à avaliação técnica:",
-        "Ambiente: "+number(estimate.width)+" × "+number(estimate.length)+" m ("+number(estimate.area)+" m²).",
-        "Pessoas: "+estimate.people+"; TVs/computadores em uso: "+estimate.electronics+"; sol direto: "+(estimate.directSun?"sim":"não")+".",
-        "Carga simplificada: "+number(estimate.estimatedBtu)+" BTU/h; referência: "+(estimate.suggestedBtu?number(estimate.suggestedBtu)+" BTU/h":"solicitar avaliação específica")+"."
-      ]:[]),
-      "Observações: "+(notes.trim()||"Nenhuma"),
-      "Estou ciente de que o orçamento e a capacidade dependem de avaliação técnica."
-    ].join("\n");
-    window.location.assign("https://wa.me/"+phone+"?text="+encodeURIComponent(message));
-  }
-  function useEstimate(value:CapacityEstimate){setEstimate(value);setBtu(value.suggestedBtu?String(value.suggestedBtu):"");}
-  function invalidateEstimate(){if(estimate){setEstimate(null);setBtu("");}}
-  function openEstimator(){document.querySelector<HTMLDetailsElement>(".capacity-help")?.setAttribute("open","");}
-
-  return <main className="customer-page">
-    <header className="header"><div className="brand">❄ AirSul <small>CLIMATIZAÇÃO</small></div><a className="contact" href={"https://wa.me/"+phone}>Falar com a AirSul</a></header>
-    <section className="hero public-hero"><div className="public-hero-inner"><h1>Seu ambiente mais confortável, sem complicação.</h1><p>Instalação, higienização e manutenção de ar-condicionado em Capão da Canoa e no Litoral Norte/RS.</p><a className="estimator-shortcut" href="#calculo-btu" onClick={openEstimator}>Não sabe quantos BTUs precisa? Descubra aqui <span aria-hidden="true">↗</span></a></div></section>
-    <section className="panel public-panel" id="pedido"><h2>Vamos preparar seu orçamento?</h2><p className="muted public-intro">Conte o que você precisa. A conversa continua pelo WhatsApp, sem cadastro.</p>
-      <form onSubmit={requestQuote} noValidate>
-        <fieldset className="request-step"><legend><span aria-hidden="true">1</span> Sobre o serviço</legend>
-          <label>Serviço desejado<select aria-label="Serviço desejado" value={service} onChange={e=>{setService(e.target.value);setSubmitted(false);}}>{Object.entries(services).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>
-          <label htmlFor="capacidade-aparelho">Capacidade do ar-condicionado</label><select id="capacidade-aparelho" value={btu} onChange={e=>{setBtu(e.target.value);setEstimate(null);}}><option value="">Ainda não sei / confirmar com a AirSul</option>{capacities.map(v=><option key={v} value={v}>{number(v)} BTU/h</option>)}</select>
-          <p className="field-help">Se já tem o aparelho, essa informação costuma estar na etiqueta ou no manual.</p>
-          <div id="calculo-btu"><CapacityEstimator onUse={useEstimate} onInvalidate={invalidateEstimate} appliedEstimate={estimate}/></div>
-          {estimate&&<p className="estimate-applied" role="status">{estimate.suggestedBtu?"Referência de "+number(estimate.suggestedBtu)+" BTU/h incluída no pedido.":"Dados do ambiente incluídos para avaliação da AirSul."}</p>}
-        </fieldset>
-        {service==="installation"&&<fieldset className="request-step"><legend><span aria-hidden="true">2</span> Sobre a instalação</legend>
-          <fieldset className="kit-question" aria-describedby="kit-description"><legend>Você possui kit de instalação?</legend><div className="kit-choices">
-            <label className={"kit-choice"+(kit==="yes"?" selected":"")}><input type="radio" name="installation-kit" value="yes" checked={kit==="yes"} onChange={()=>setKit("yes")} aria-invalid={submitted&&!kit}/><span><strong>Sim</strong><small>Já tenho os materiais</small></span></label>
-            <label className={"kit-choice"+(kit==="no"?" selected":"")}><input type="radio" name="installation-kit" value="no" checked={kit==="no"} onChange={()=>setKit("no")} aria-invalid={submitted&&!kit}/><span><strong>Não</strong><small>Preciso incluir no orçamento</small></span></label>
-          </div><div className="kit-description" id="kit-description"><strong>O que é o kit de instalação?</strong><p>É o material que liga a unidade interna à externa: tubos de cobre isolados, cabo de interligação e dreno (mangueira para saída da água). Suportes e acabamentos variam.</p><p>A AirSul confere medidas e compatibilidade. Se tiver só parte do kit, marque “Sim” e descreva nas observações.</p></div>
-          {submitted&&!kit&&<p className="error" role="alert">Informe se você possui o kit de instalação.</p>}
-          </fieldset>
-          <label>Distância estimada entre as unidades (m) — opcional<input inputMode="decimal" value={meters} onChange={e=>setMeters(e.target.value)} placeholder="Ex.: 3" aria-invalid={submitted&&!validMeters}/></label><p className="field-help">É o percurso da parte interna até a parte externa. Se não souber, deixe em branco.</p>
-          {submitted&&!validMeters&&<p className="error" role="alert">Informe uma distância entre 0,5 e 100 metros, com até duas casas decimais, ou deixe em branco.</p>}
-        </fieldset>}
-        <fieldset className="request-step"><legend><span aria-hidden="true">{service==="installation"?"3":"2"}</span> Seus dados para contato</legend>
-          <div className="public-grid"><div><label>Seu nome<input value={name} onChange={e=>setName(e.target.value)} placeholder="Como podemos chamar você?" autoComplete="name" required minLength={2} maxLength={120} aria-invalid={submitted&&!nameValid}/></label>{submitted&&!nameValid&&<p className="error" role="alert">Informe seu nome (mínimo de 2 caracteres).</p>}</div><div><label>Telefone para contato (opcional)<input type="tel" inputMode="tel" autoComplete="tel" value={contact} onChange={e=>setContact(e.target.value)} placeholder="(51) 99999-9999" maxLength={30} aria-invalid={submitted&&!contactValid}/></label>{submitted&&!contactValid&&<p className="error" role="alert">Confira o telefone ou deixe o campo vazio.</p>}</div></div>
-          <label>Cidade e bairro<input value={city} onChange={e=>setCity(e.target.value)} placeholder="Ex.: Capão da Canoa, Centro" required minLength={2} maxLength={120} aria-invalid={submitted&&!cityValid}/></label>{submitted&&!cityValid&&<p className="error" role="alert">Informe sua cidade ou bairro.</p>}
-          <label>Observações (opcional)<textarea value={notes} onChange={e=>setNotes(e.target.value)} rows={3} maxLength={1000} placeholder="Ex.: tenho parte do kit, o ambiente tem teto alto, preciso de ajuda para escolher o aparelho..."/></label>
-        </fieldset>
-        <div className="public-submit"><button type="submit">Continuar no WhatsApp <span aria-hidden="true">→</span></button><p>Você confere a mensagem no WhatsApp e toca em enviar para concluir a solicitação.</p></div>
-      </form>
-      <p className="footnote">A solicitação não confirma preço ou agendamento. A equipe avalia o local, os materiais e as orientações do fabricante antes de fechar o orçamento.</p>
-    </section>
-    <footer>AirSul Climatização • Capão da Canoa e Litoral Norte/RS<a className="admin-link" href="https://airsul-orcamentos-api.onrender.com/admin">Área administrativa</a></footer>
-  </main>;
+ const [step,setStep]=useState(1);const [service,setService]=useState('');const [name,setName]=useState('');const [contact,setContact]=useState('');const [city,setCity]=useState('');const [btu,setBtu]=useState('');const [meters,setMeters]=useState('');const [kit,setKit]=useState('unknown');const [notes,setNotes]=useState('');const [estimate,setEstimate]=useState<CapacityEstimate|null>(null);const [error,setError]=useState('');const [busy,setBusy]=useState(false);const [received,setReceived]=useState<{reference:string;message:string}|null>(null);const [offline,setOffline]=useState(false);const [validation,setValidation]=useState(false);
+ const inFlight=useRef(false);const submission=useRef<{serialized:string;id:string}>();
+ const metersKnown=meters.trim()!=='';const meterValue=Number(meters.replace(',','.'));const validMeters=!metersKnown||(/^\d+(?:[.,]\d{1,2})?$/.test(meters.trim())&&meterValue>=0.5&&meterValue<=100);
+ const nameValid=name.trim().length>=2,cityValid=city.trim().length>=2;const digits=contact.replace(/\D/g,'');const phoneValid=/^[+()\d\s-]{8,30}$/.test(contact)&&digits.length>=10&&digits.length<=15;
+ function go(value:number){setStep(value);setError('');setValidation(false);setOffline(false);requestAnimationFrame(()=>document.getElementById('pedido')?.scrollIntoView({behavior:'smooth',block:'start'}));}
+ function useEstimate(value:CapacityEstimate){setEstimate(value);setBtu(value.suggestedBtu?String(value.suggestedBtu):'');}
+ function invalidateEstimate(){if(estimate){setEstimate(null);setBtu('');}}
+ function message(reference?:string){return ['Olá! Gostaria de atendimento com a AirSul.',reference?'Protocolo: '+reference:'Pedido pelo site (sem confirmação de registro).','Serviço: '+(services[service]?.title||'Preciso de orientação'),'Nome: '+name.trim(),'Contato: '+contact.trim(),'Cidade / bairro: '+city.trim(),'Capacidade: '+(btu?number(Number(btu))+' BTU/h':'A confirmar com a AirSul'),...(service==='installation'?['Kit de instalação: '+({yes:'Possuo (conferir compatibilidade)',no:'Não possuo, incluir no orçamento',unknown:'Não sei, preciso de orientação'}[kit]||'A confirmar'),'Distância: '+(metersKnown?number(meterValue)+' m':'A confirmar')]:[]),...(estimate?['Ambiente: '+estimate.width+' × '+estimate.length+' m; pessoas: '+estimate.people+'; eletrônicos: '+estimate.electronics+'; sol direto: '+(estimate.directSun?'sim':'não')+'.','Estimativa simplificada: '+number(estimate.estimatedBtu)+' BTU/h, sujeita à avaliação da AirSul.']:[]),'Observações: '+(notes.trim()||'Nenhuma'),'O orçamento e o agendamento dependem de avaliação e confirmação com a AirSul.'].join('\n');}
+ async function submit(e:FormEvent){
+  e.preventDefault();if(inFlight.current)return;
+  if(step===1){if(!service){setError('Escolha o que você precisa. Se tiver dúvida, marque “Preciso de orientação”.');return;}go(2);return;}
+  if(step===2){if(service==='installation'&&!validMeters){setError('Confira a distância informada ou deixe em branco se não souber.');return;}go(3);return;}
+  setValidation(true);setOffline(false);if(!nameValid||!cityValid||!phoneValid){setError('Confira seu nome, telefone com DDD e cidade.');requestAnimationFrame(()=>document.querySelector<HTMLElement>('.customer-page [aria-invalid=true]')?.focus());return;}
+  const payload={name:name.trim(),phone:contact.trim(),location:city.trim(),service,capacity:btu?Number(btu):null,kit:service==='installation'?kit:'unknown',meters:service==='installation'&&metersKnown?meterValue:null,notes:notes.trim(),estimate};
+  const serialized=JSON.stringify(payload);if(submission.current?.serialized!==serialized)submission.current={serialized,id:crypto.randomUUID()};
+  inFlight.current=true;setBusy(true);setError('');const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),60000);
+  try{const response=await fetch(apiOrigin+'/api/public/requests',{method:'POST',credentials:'omit',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:submission.current!.id,...payload}),signal:controller.signal});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.error||'Não foi possível confirmar o registro agora.');setReceived({reference:data.reference,message:message(data.reference)});requestAnimationFrame(()=>document.getElementById('pedido')?.scrollIntoView({behavior:'smooth',block:'start'}));}
+  catch(e){setError((e as Error).name==='AbortError'?'O atendimento demorou para responder. Tente novamente ou continue pelo WhatsApp.':(e as Error).message);setOffline(true);}finally{clearTimeout(timer);inFlight.current=false;setBusy(false);}
+ }
+ function reset(){setReceived(null);setStep(1);setService('');setName('');setContact('');setCity('');setBtu('');setMeters('');setKit('unknown');setNotes('');setEstimate(null);setError('');setOffline(false);setValidation(false);submission.current=undefined;}
+ return <main className="customer-page"><header className="header"><div className="brand">❄ AirSul <small>CLIMATIZAÇÃO</small></div><a className="contact" href={'https://wa.me/'+phone}>Falar no WhatsApp</a></header><section className="hero public-hero"><div className="public-hero-inner"><h1>Precisando de ajuda com seu ar-condicionado?</h1><p>Conte o que você precisa. Nós ajudamos com os detalhes, mesmo se você não entende de ar-condicionado.</p><p className="public-area">Atendimento em Capão da Canoa e Litoral Norte/RS.</p></div></section>
+ <section className="panel public-panel" id="pedido">{received?<div className="request-success"><span className="success-mark" aria-hidden="true">✓</span><h2>Seu pedido foi recebido!</h2><p>A solicitação já está no atendimento da AirSul.</p><p className="protocol">Seu protocolo <strong>{received.reference}</strong></p><p>Quer continuar a conversa agora? Abra o WhatsApp com seu pedido preenchido.</p><a className="primary-link" href={'https://wa.me/'+phone+'?text='+encodeURIComponent(received.message)}>Continuar no WhatsApp →</a><p className="field-help">No WhatsApp, confira a mensagem e toque em enviar. Preço e horário ainda serão combinados com a equipe.</p><button type="button" className="public-secondary" onClick={reset}>Fazer outro pedido</button></div>:<>
+ <h2>Vamos ajudar você</h2><p className="muted public-intro">Sem cadastro e sem obrigação de saber termos técnicos.</p><ol className="request-progress" aria-label="Etapas do pedido">{['O que você precisa','Alguns detalhes','Seu contato'].map((label,i)=><li key={label} aria-current={step===i+1?'step':undefined}><button type="button" disabled={busy||i+1>step} onClick={()=>go(i+1)}><span>{i+1}</span>{label}</button></li>)}</ol>
+ <form onSubmit={submit} noValidate><fieldset className="form-fields" disabled={busy}>
+ {step===1&&<div className="wizard-step"><h3>Como podemos ajudar?</h3><p className="field-help">Escolha a opção que mais combina com o que você precisa.</p><div className="service-choices">{Object.entries(services).map(([value,s])=><label className={'service-choice'+(service===value?' selected':'')} key={value}><input type="radio" name="service" checked={service===value} onChange={()=>{setService(value);setError('');}}/><span><strong>{s.title}</strong><small>{s.help}</small></span></label>)}</div></div>}
+ {step===2&&<div className="wizard-step"><h3>Conte apenas o que você souber</h3><p className="muted">Se tiver dúvida, deixe “Não sei”. A equipe vai orientar você.</p>
+ {service==='installation'&&<><fieldset className="kit-question" aria-describedby="kit-description"><legend>Você já tem os materiais de instalação?</legend><div className="kit-choices three-choices">{[['yes','Sim','Já tenho o kit'],['no','Não','Preciso dos materiais'],['unknown','Não sei','Quero orientação']].map(([value,title,help])=><label key={value} className={'kit-choice'+(kit===value?' selected':'')}><input type="radio" name="installation-kit" checked={kit===value} onChange={()=>setKit(value)}/><span><strong>{title}</strong><small>{help}</small></span></label>)}</div><details className="plain-help" id="kit-description"><summary>O que é esse kit?</summary><p>São os materiais que ligam a parte interna à externa do aparelho, como tubos de cobre, isolamento, cabos e mangueira para a água. Suportes e acabamentos variam.</p><p>Se tiver só uma parte, conte nas observações. Nós conferimos o que falta e se o kit serve no seu aparelho.</p></details></fieldset><details className="plain-help installation-extras"><summary>Sei a distância entre as partes do aparelho</summary><label>Distância aproximada (metros)<input inputMode="decimal" value={meters} onChange={e=>setMeters(e.target.value)} placeholder="Ex.: 3"/></label><p className="field-help">Pode deixar em branco. A medida será conferida no local.</p></details></>}
+ <details className="plain-help appliance-extras"><summary>Sei a capacidade do aparelho ou quero estimar</summary><label htmlFor="capacidade-aparelho">Capacidade do ar-condicionado (opcional)</label><select id="capacidade-aparelho" value={btu} onChange={e=>{setBtu(e.target.value);setEstimate(null);}}><option value="">Não sei / confirmar com a AirSul</option>{capacities.map(v=><option key={v} value={v}>{number(v)} BTU/h</option>)}</select><p className="field-help">BTU/h indica quanto o aparelho consegue refrigerar. A informação costuma estar na etiqueta ou no manual.</p><CapacityEstimator onUse={useEstimate} onInvalidate={invalidateEstimate} appliedEstimate={estimate}/>{estimate&&<p className="estimate-applied" role="status">Dados da estimativa incluídos para conferência da AirSul.</p>}</details>
+ <label>Quer contar mais alguma coisa? (opcional)<textarea value={notes} onChange={e=>setNotes(e.target.value)} rows={3} maxLength={1000} placeholder="Ex.: o aparelho não está gelando; ainda não comprei o ar; tenho só parte dos materiais..."/></label></div>}
+ {step===3&&<div className="wizard-step"><h3>Como podemos falar com você?</h3><div className="request-review"><strong>{services[service]?.title}</strong><p>{btu?number(Number(btu))+' BTU/h':'Capacidade a confirmar com a equipe.'}{service==='installation'?' Materiais: '+({yes:'possui kit',no:'precisa incluir',unknown:'a confirmar'}[kit])+'.':''}</p><button type="button" className="public-secondary" onClick={()=>go(2)}>Alterar detalhes</button></div><label>Seu nome<input value={name} onChange={e=>setName(e.target.value)} autoComplete="name" placeholder="Como podemos chamar você?" maxLength={120} required aria-invalid={validation&&!nameValid}/></label><label>Seu WhatsApp com DDD<input type="tel" inputMode="tel" value={contact} onChange={e=>setContact(e.target.value)} autoComplete="tel" placeholder="Ex.: (51) 99999-9999" maxLength={30} required aria-invalid={validation&&!phoneValid}/></label><p className="field-help">Precisamos do telefone para responder ao seu pedido.</p><label>Cidade e bairro<input value={city} onChange={e=>setCity(e.target.value)} placeholder="Ex.: Capão da Canoa, Centro" maxLength={200} required aria-invalid={validation&&!cityValid}/></label><p className="footnote">Seu nome, contato e detalhes do pedido serão registrados para atendimento da AirSul. O pedido não confirma preço, contratação ou horário.</p></div>}
+ {error&&<p className="error" role="alert">{error}</p>}{offline&&<a className="fallback-whatsapp" href={'https://wa.me/'+phone+'?text='+encodeURIComponent(message())}>Continuar só pelo WhatsApp</a>}
+ <div className="wizard-actions">{step>1&&<button className="public-secondary" type="button" onClick={()=>go(step-1)}>← Voltar</button>}<button type="submit">{busy?'Registrando seu pedido...':step===3?'Enviar pedido para a AirSul':'Continuar →'}</button></div>{busy&&<p role="status" className="field-help">Estamos registrando seu pedido. A primeira conexão pode levar alguns instantes.</p>}</fieldset></form></>}
+ </section><footer>AirSul Climatização • Capão da Canoa e Litoral Norte/RS<a className="admin-link" href="https://airsul-orcamentos-api.onrender.com/admin">Área administrativa</a></footer></main>;
 }
