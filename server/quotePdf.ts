@@ -1,30 +1,37 @@
 import PDFDocument from 'pdfkit';
 import type {Response} from 'express';
-export function quotePdf(res:Response,q:any,items:any[]){
- const doc=new PDFDocument({size:'A4',margin:48,bufferPages:true,info:{Title:'Proposta AirSul Climatização'}});
- doc.on('error',()=>{if(!res.headersSent)res.status(503).end();else res.end();});
- res.type('application/pdf').set('Content-Disposition','attachment; filename="airsul-'+q.id+'.pdf"');doc.pipe(res);
- doc.rect(0,0,doc.page.width,120).fill('#092338');
- doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(27).text('AirSul',48,32);
- doc.font('Helvetica').fontSize(11).text('CLIMATIZAÇÃO',49,68).text('Capão da Canoa e Litoral Norte/RS',49,88);
- doc.fillColor('#16384c').font('Helvetica-Bold').fontSize(21).text('Proposta de instalação',48,148);
- const date=new Date(q.created_at);const until=new Date(date);until.setUTCDate(until.getUTCDate()+q.validity_days);
- const format=(d:Date)=>d.toLocaleDateString('pt-BR',{timeZone:'America/Sao_Paulo'});
- doc.font('Helvetica').fontSize(10).fillColor('#567184').text('ORC-'+q.id.slice(0,8).toUpperCase()+'  |  Emissão: '+format(date)+'  |  Validade: '+format(until));
- doc.moveDown().font('Helvetica-Bold').fillColor('#16384c').text('Cliente: '+q.customer_name);
- if(q.customer_phone)doc.font('Helvetica').text('Contato: '+q.customer_phone);
- doc.font('Helvetica').text('Capacidade: '+Number(q.capacity_btu).toLocaleString('pt-BR')+' BTU/h  |  Distância: '+Number(q.line_length_m).toLocaleString('pt-BR')+' m');
- doc.text('Materiais: '+({airsul:'fornecidos pela AirSul',client:'fornecidos pelo cliente',partial:'fornecimento parcial'}[q.supply_mode as string]||q.supply_mode));
- doc.moveDown(1.3).font('Helvetica-Bold').fontSize(12).text('Escopo e materiais previstos');
- doc.moveDown(0.5).font('Helvetica').fontSize(10);
- if(!items.length)doc.text('Serviço de instalação conforme avaliação e condições acordadas.');
- items.forEach(i=>{doc.text(Number(i.quantity).toLocaleString('pt-BR')+' x '+i.description,{paragraphGap:7});});
- doc.moveDown().font('Helvetica-Bold').fontSize(19).fillColor('#0875be').text('Valor proposto: '+new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(Number(q.proposed_price)));
- doc.moveDown().fontSize(12).fillColor('#16384c').text('Condições comerciais');
- doc.font('Helvetica').fontSize(10).moveDown(0.5).text('Prazo de execução: '+(q.execution_deadline||'A combinar após avaliação e disponibilidade.'),{paragraphGap:9});
- doc.text('Pagamento: '+(q.payment_terms||'A combinar com a AirSul.'),{paragraphGap:9});
- doc.text('Proposta válida por '+q.validity_days+' dias a partir da emissão. A execução depende da avaliação do local, compatibilidade dos materiais e confirmação de agenda. Este PDF não confirma contratação ou agendamento.',{paragraphGap:9});
- doc.moveDown().fillColor('#567184').fontSize(9).text('AirSul Climatização | WhatsApp (51) 99819-3796');
- const range=doc.bufferedPageRange();for(let i=range.start;i<range.start+range.count;i++){doc.switchToPage(i);doc.page.margins.bottom=0;doc.fontSize(8).fillColor('#718594').text('AirSul Climatização  |  Página '+(i+1)+' de '+range.count,48,doc.page.height-30,{lineBreak:false});}
- doc.end();
+const navy='#092338',blue='#0875be',ink='#16384c',muted='#567184',border='#dbe5ec';
+const money=(n:number)=>n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+const clean=(value:unknown)=>String(value??'').replace(/[–—]/g,'-').replace(/[“”]/g,'"').replace(/[‘’]/g,"'").replace(/[^\x09\x0a\x0d\x20-\x7e\xa0-\xff]/g,'');
+export function createQuoteDocument(q:any,items:{description:string;quantity:number|string}[]){
+ const doc=new PDFDocument({size:'A4',margins:{top:140,bottom:65,left:44,right:44},bufferPages:true,info:{Title:'Orçamento AirSul - ORC-'+q.id.slice(0,8).toUpperCase(),Author:'AirSul Climatização',Subject:'Proposta comercial'}});
+ const left=44,width=doc.page.width-88,reference='ORC-'+q.id.slice(0,8).toUpperCase();const date=new Date(q.created_at),until=new Date(date);until.setUTCDate(until.getUTCDate()+(q.validity_days||15));const format=(value:Date)=>value.toLocaleDateString('pt-BR',{timeZone:'America/Sao_Paulo'});
+ function header(){
+  doc.save();doc.rect(0,0,doc.page.width,108).fill(navy);const cx=62,cy=47,r=20;
+  doc.strokeColor('#78c9f4').lineWidth(1.7);for(let i=0;i<6;i++){const angle=Math.PI*i/3;const x=cx+Math.cos(angle)*r,y=cy+Math.sin(angle)*r;doc.moveTo(cx,cy).lineTo(x,y).stroke();const bx=cx+Math.cos(angle)*12,by=cy+Math.sin(angle)*12;for(const side of [-1,1])doc.moveTo(bx,by).lineTo(bx+Math.cos(angle+side*Math.PI/3)*7,by+Math.sin(angle+side*Math.PI/3)*7).stroke();}
+  doc.font('Helvetica-Bold').fontSize(29).fillColor('#ffffff').text('AirSul',96,24,{lineBreak:false});doc.font('Helvetica').fontSize(8.5).text('C L I M A T I Z A Ç Ã O',97,61,{lineBreak:false});doc.fontSize(8).fillColor('#c5dcea').text('Capão da Canoa e Litoral Norte/RS',44,87,{lineBreak:false});
+  doc.font('Helvetica-Bold').fontSize(11).fillColor('#ffffff').text(reference,335,29,{width:216,align:'right',lineBreak:false});doc.font('Helvetica').fontSize(9).text('Versão '+(q.version||1)+'  |  '+format(date),335,49,{width:216,align:'right',lineBreak:false});doc.fontSize(9).fillColor('#c5dcea').text('WhatsApp (51) 99819-3796',335,72,{width:216,align:'right',link:'https://wa.me/5551998193796',lineBreak:false});doc.restore();doc.x=left;doc.y=140;
+ }
+ header();doc.on('pageAdded',header);
+ function ensure(height:number){if(doc.y+height>doc.page.height-70)doc.addPage();}
+ function paragraph(text:string,fontSize=10,color=ink){doc.font('Helvetica').fontSize(fontSize).fillColor(color);const lineHeight=fontSize*1.45;
+  for(const raw of clean(text).split(/\r?\n/)){const words=raw.split(/\s+/).filter(Boolean);let line='';const lines:string[]=[];for(const word of words){let part=word;while(doc.widthOfString(part)>width){if(line){lines.push(line);line='';}let length=1;while(length<part.length&&doc.widthOfString(part.slice(0,length+1))<=width)length++;lines.push(part.slice(0,length));part=part.slice(length);}if(doc.widthOfString(line?line+' '+part:part)>width){lines.push(line);line=part;}else line=line?line+' '+part:part;}lines.push(line);for(const value of lines){ensure(lineHeight);const y=doc.y;doc.font('Helvetica').fontSize(fontSize).fillColor(color).text(value,left,y,{width,lineBreak:false});doc.y=y+lineHeight;}}
+  doc.y+=6;
+ }
+ function title(text:string){ensure(42);const y=doc.y;doc.font('Helvetica-Bold').fontSize(12).fillColor(ink).text(text,left,y,{width,lineBreak:false});doc.y=y+23;}
+ doc.font('Helvetica-Bold').fontSize(24).fillColor(ink).text('Orçamento',left,140,{lineBreak:false});doc.y=169;paragraph('Proposta comercial  |  Válida até '+format(until),9,muted);doc.y+=8;
+ const clientName=clean(q.customer_name||'Cliente');const contact=clean([q.customer_phone,q.customer_email].filter(Boolean).join('  |  '));doc.font('Helvetica-Bold').fontSize(15);const nameHeight=doc.heightOfString(clientName,{width:width-32});doc.font('Helvetica').fontSize(9);const contactHeight=contact?doc.heightOfString(contact,{width:width-32}):0;const boxHeight=42+nameHeight+contactHeight;
+ ensure(boxHeight);const boxY=doc.y;doc.roundedRect(left,boxY,width,boxHeight,8).fill('#f1f6fa');doc.font('Helvetica-Bold').fontSize(8).fillColor(muted).text('CLIENTE',left+16,boxY+13,{lineBreak:false});doc.fontSize(15).fillColor(ink).text(clientName,left+16,boxY+30,{width:width-32});if(contact)doc.font('Helvetica').fontSize(9).fillColor(muted).text(contact,left+16,boxY+35+nameHeight,{width:width-32});doc.y=boxY+boxHeight+14;
+ paragraph('Capacidade: '+Number(q.capacity_btu).toLocaleString('pt-BR')+' BTU/h   |   Tubulação: '+Number(q.line_length_m).toLocaleString('pt-BR')+' m',9,muted);
+ paragraph('Materiais: '+({airsul:'fornecidos pela AirSul',client:'fornecidos pelo cliente',partial:'fornecimento parcial, conforme composição'}[q.supply_mode as string]||'a combinar'),9,muted);doc.y+=6;
+ title('Descrição do serviço');paragraph(q.pricing_input?.serviceDescription||'Serviços conforme escopo, materiais e condições desta proposta. Detalhes finais sujeitos à avaliação do local.');doc.y+=8;
+ if(items.length){ensure(90);title('Materiais previstos');function tableHeader(){ensure(52);const y=doc.y;doc.rect(left,y,width,25).fill(navy);doc.font('Helvetica-Bold').fontSize(9).fillColor('#ffffff').text('DESCRIÇÃO',left+12,y+8,{width:width-90,lineBreak:false});doc.text('QTD.',left+width-70,y+8,{width:58,align:'right',lineBreak:false});doc.y=y+25;}
+  tableHeader();items.forEach((item,index)=>{doc.font('Helvetica').fontSize(9.5);const description=clean(item.description),rowHeight=Math.max(35,doc.heightOfString(description,{width:width-100,lineGap:2})+18);if(doc.y+rowHeight>doc.page.height-70){doc.addPage();tableHeader();}const y=doc.y;doc.rect(left,y,width,rowHeight).fill(index%2?'#ffffff':'#f4f8fb');doc.font('Helvetica').fontSize(9.5).fillColor(ink).text(description,left+12,y+10,{width:width-100,lineGap:2});doc.text(Number(item.quantity).toLocaleString('pt-BR',{maximumFractionDigits:3}),left+width-70,y+10,{width:58,align:'right',lineBreak:false});doc.moveTo(left,y+rowHeight).lineTo(left+width,y+rowHeight).strokeColor(border).lineWidth(.5).stroke();doc.y=y+rowHeight;});doc.y+=14;
+ }
+ ensure(95);const totalY=doc.y;doc.roundedRect(left,totalY,width,76,8).fill(blue);doc.font('Helvetica-Bold').fontSize(10).fillColor('#ffffff').text('VALOR TOTAL DO ORÇAMENTO',left+18,totalY+17,{lineBreak:false});doc.fontSize(25).text(money(Number(q.proposed_price)),left+18,totalY+35,{width:width-36,align:'right',lineBreak:false});doc.y=totalY+92;
+ title('Condições comerciais');paragraph('Prazo de execução: '+(q.execution_deadline||'A combinar após avaliação e disponibilidade.'));paragraph('Pagamento: '+(q.payment_terms||'A combinar com a AirSul.'));paragraph('Validade: '+(q.validity_days||15)+' dias a partir da emissão, até '+format(until)+'.');doc.y+=7;
+ paragraph('A execução depende da avaliação do local, da compatibilidade dos materiais e da confirmação de agenda. Esta proposta não confirma contratação ou agendamento.',8.5,muted);doc.y+=7;paragraph('Aprovação e dúvidas: WhatsApp (51) 99819-3796. Informe '+reference+'.',9,ink);
+ const range=doc.bufferedPageRange();for(let index=range.start;index<range.start+range.count;index++){doc.switchToPage(index);doc.page.margins.bottom=0;const y=doc.page.height-37;doc.moveTo(left,y-9).lineTo(left+width,y-9).strokeColor(border).lineWidth(.5).stroke();doc.font('Helvetica').fontSize(8).fillColor(muted).text('AirSul Climatização  |  '+reference,left,y,{lineBreak:false,link:'https://wa.me/5551998193796'});doc.text('Página '+(index+1)+' de '+range.count,left,y,{width,align:'right',lineBreak:false});}
+ doc.end();return doc;
 }
+export function quotePdf(res:Response,q:any,items:any[]){const doc=createQuoteDocument(q,items);doc.on('error',()=>{if(!res.headersSent)res.status(503).end();else res.end();});res.set('X-Quote-Version',String(q.version||1));res.type('application/pdf').set('Content-Disposition','attachment; filename="airsul-'+q.id+'.pdf"');doc.pipe(res);}
