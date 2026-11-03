@@ -19,7 +19,7 @@ Fluxo comercial (migração 003):
 - Registro público apenas por POST JSON com Origin permitida, sem cookies/CORS de credenciais. Limite de 15 tentativas por hora/IP. Não há consulta pública das solicitações.
 - O protocolo só é devolvido após persistência confirmada. O identificador de envio e o hash do conteúdo impedem duplicações por repetição da mesma submissão. A resposta não retorna dados pessoais do pedido.
 - Nome, telefone, localização e texto têm validação e limites de tamanho. Estimativas têm estrutura e intervalos validados, sem serem tratadas como dimensão técnica definitiva.
-- Novas rotas administrativas continuam exigindo sessão e Origin nas escritas. A role runtime pode atualizar solicitações, agenda e orçamentos, inserir modelos/eventos e substituir itens somente pela API de edição protegida.
+- Novas rotas administrativas continuam exigindo sessão e Origin nas escritas. A role runtime pode atualizar solicitações, agenda e orçamentos, inserir modelos/eventos e novas revisões de itens pela API de edição protegida. Não recebe DELETE em quote_items; as revisões anteriores são preservadas.
 - Orçamentos têm controle de versão e histórico anterior em quote_events. Não se edita composição de aprovado/enviado/aceito/recusado; usa-se duplicação. Não se muda o cliente de orçamento vinculado a pedido sem duplicar.
 - A agenda serializa a criação e rejeita sobreposição de serviços agendados. Cancelamentos e conclusões são preservados no banco, sem exclusão de registros.
 - Botões de WhatsApp abrem conversas para ação do administrador/cliente; não há envio automático de mensagens.

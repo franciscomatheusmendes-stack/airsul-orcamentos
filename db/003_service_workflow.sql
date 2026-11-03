@@ -5,6 +5,9 @@ ALTER TABLE quotes ADD COLUMN IF NOT EXISTS execution_deadline text NOT NULL DEF
 ALTER TABLE quotes ADD COLUMN IF NOT EXISTS payment_terms text NOT NULL DEFAULT '';
 ALTER TABLE quotes ADD COLUMN IF NOT EXISTS version integer NOT NULL DEFAULT 1;
 ALTER TABLE quotes ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS items_revision integer NOT NULL DEFAULT 1;
+ALTER TABLE quote_items ADD COLUMN IF NOT EXISTS revision integer NOT NULL DEFAULT 1;
+CREATE INDEX IF NOT EXISTS quote_items_revision_idx ON quote_items(quote_id,revision);
 CREATE TABLE IF NOT EXISTS service_requests (
  id uuid PRIMARY KEY, payload_hash text NOT NULL,
  customer_name text NOT NULL, phone text NOT NULL, location text NOT NULL,
@@ -36,4 +39,3 @@ CREATE INDEX IF NOT EXISTS appointments_starts_idx ON appointments(starts_at) WH
 GRANT SELECT,INSERT,UPDATE ON service_requests,appointments TO airsul_runtime;
 GRANT SELECT,INSERT ON quote_events,quote_templates TO airsul_runtime;
 GRANT UPDATE ON quotes TO airsul_runtime;
-GRANT DELETE ON quote_items TO airsul_runtime;

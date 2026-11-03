@@ -11,7 +11,8 @@ it.skipIf(process.env.AIRSUL_INTEGRATION_TEST!=='workflow-isolated-branch')('val
  const app=createApp(pool);
  try{
   expect((await pool.query('SELECT current_user')).rows[0].current_user).toBe('airsul_runtime');
-  const admin=(await pool.query('SELECT id FROM admin_users WHERE email=$1',['francisco.matheusmendes@gmail.com'])).rows[0];
+  expect((await pool.query("SELECT has_table_privilege(current_user,'quote_items','DELETE') AS allowed")).rows[0].allowed).toBe(false);
+ const admin=(await pool.query('SELECT id FROM admin_users WHERE email=$1',['francisco.matheusmendes@gmail.com'])).rows[0];
   const token=randomBytes(32).toString('hex');await pool.query("INSERT INTO admin_sessions(token_hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 hour')",[createHash('sha256').update(token).digest('hex'),admin.id]);
   const cookie='airsul_session='+token;
   const post=(path:string,body:any)=>request(app).post(path).set('Cookie',cookie).set('Origin',process.env.ADMIN_ORIGIN!).send(body);
@@ -35,6 +36,7 @@ it.skipIf(process.env.AIRSUL_INTEGRATION_TEST!=='workflow-isolated-branch')('val
   const quote=await post('/api/admin/quotes',input);expect(quote.status).toBe(201);expect(quote.body.proposedPriceCents).toBe(40000);const qid=quote.body.quoteId;
   expect((await pool.query('SELECT status,quote_id FROM service_requests WHERE id=$1',[payload.id])).rows[0]).toEqual({status:'quoted',quote_id:qid});
   const edited=await put('/api/admin/quotes/'+qid,{...input,version:1,laborCents:23000});expect(edited.status).toBe(200);expect(edited.body.version).toBe(2);
+  expect(Number((await pool.query('SELECT count(DISTINCT revision) AS total FROM quote_items WHERE quote_id=$1',[qid])).rows[0].total)).toBe(2);
   const other=await post('/api/admin/customers',{name:'Outro cliente de teste',phone:'51988888888',email:''});
   expect((await put('/api/admin/quotes/'+qid,{...input,requestId:null,customerId:other.body.customer.id,version:2})).status).toBe(400);
   expect((await put('/api/admin/quotes/'+qid,{...input,version:1})).status).toBe(409);
@@ -43,6 +45,7 @@ it.skipIf(process.env.AIRSUL_INTEGRATION_TEST!=='workflow-isolated-branch')('val
   expect((await put('/api/admin/quotes/'+qid+'/status',{status:'approved',version:2})).status).toBe(200);
   expect((await put('/api/admin/quotes/'+qid,{...input,version:3})).status).toBe(409);
   const duplicate=await post('/api/admin/quotes/'+qid+'/duplicate',{version:3});expect(duplicate.status).toBe(201);const copied=(await get('/api/admin/quotes/'+duplicate.body.quoteId)).body.quote;expect(copied.status).toBe('draft');expect(copied.pricing_input.requestId).toBeNull();
+  expect(Number((await pool.query('SELECT count(*) AS total FROM quote_items WHERE quote_id=$1',[duplicate.body.quoteId])).rows[0].total)).toBe(input.lines.length);
   const pdf=await get('/api/admin/quotes/'+qid+'/pdf');expect(pdf.status).toBe(200);expect(pdf.body.subarray(0,4).toString()).toBe('%PDF');await mkdir('tmp/qa-workflow',{recursive:true});await writeFile('tmp/qa-workflow/proposta.pdf',pdf.body);
   const appointment={customerId:cid,quoteId:qid,requestId:payload.id,startsAt:'2026-11-10T13:00:00-03:00',durationMinutes:60,serviceType:'installation',notes:'Visita teste'};
   for(const previous of (await get('/api/admin/appointments')).body.appointments.filter((a:any)=>a.notes==='Visita teste'&&a.status==='scheduled'))await put('/api/admin/appointments/'+previous.id+'/status',{status:'cancelled'});
